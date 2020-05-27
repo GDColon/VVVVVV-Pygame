@@ -1,0 +1,19 @@
+When entering a room, the following sprites are loaded into an array at the specified index.
+Most sprites are dynamic and change color/texture depending on the room's metadata.
+
+0-12	Ground tiles *^
+13-25	Background tiles *^
+26-29	Spikes (up, down, left, right) *^
+30-32	Player
+33-34	Checkpoint (off, on)
+35-36	Flipped checkpoint (off, on)
+37	Platform *
+38-41	Breaking platform states *
+42-45	Left conveyor *
+46-49	Right conveyor *
+50	Moving object boundry
+51 	Warp Zone connector
+52-56	Teleporter
+
+* dynamic color
+^ dynamic texture (depends on tileset)

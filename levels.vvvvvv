@@ -1,0 +1,28 @@
+[
+    {
+        "folder": "spacestation",
+        "name": "The Space Station",
+        "music": "space",
+        "startingRoom": [5, 5],
+        "startingCoords": [320, 320],
+        "defaultTilesets": [0, 1, 2, 3, 4, 5, 6]
+    },
+
+    {
+        "folder": "laboratory",
+        "name": "The Laboratory",
+        "music": "lab",
+        "startingRoom": [5, 5],
+        "startingCoords": [460, 420],
+        "defaultTilesets": [8]
+    },
+
+    {
+        "folder": "warpzone",
+        "name": "The Warp Zone",
+        "music": "warp",
+        "startingRoom": [5, 5],
+        "startingCoords": [250, 160],
+        "defaultTilesets": [7]
+    }
+]
