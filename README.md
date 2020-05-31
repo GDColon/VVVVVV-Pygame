@@ -23,16 +23,16 @@ If you want to add a new stage to the game, add a new level object to `levels.vv
 + Added buffer system for non-vertical platforms (how to fix?)
 + Added death animation
 + Polished ending cutscene to be more like VVVVVV's
-+ Added more forgiveness with fatal hitboxes in the form of invincibility frames:
-   Enemies require 2 consecutive frames of contact
-   Spikes require 3 consecutive frames, but if grounded, window is reduced to 1 frame of contact.
-+Slightly lowered enemy forgiveness (20 -> 16)
-+Slightly lowered large enemy forgiveness ([35, 32, 38, 40] -> [30, 26, 38, 40])
-+When walking off solid ground, accelerate up to maximum fall speed:
-   Indirectly nerfs coyote frames, which prevents clipping through gravity lines
-+Slightly adjusted physics when colliding with gravity lines
-+Slightly lowered volume of gravity lines
-+Fixed bug where player doesn't transition smoothly vertically with vertical warping enabled.
++ Added more forgiveness with fatal hitboxes in the form of invincibility frames
+   + Enemies require 2 consecutive frames of contact
+   + Spikes require 3 consecutive frames, but if grounded, window is reduced to 1 frame of contact.
++ Slightly lowered enemy forgiveness (20 -> 16)
++ Slightly lowered large enemy forgiveness ([35, 32, 38, 40] -> [30, 26, 38, 40])
++ When walking off solid ground, accelerate up to maximum fall speed:
+   + Indirectly nerfs coyote frames, which prevents clipping through gravity lines
++ Slightly adjusted physics when colliding with gravity lines
++ Slightly lowered volume of gravity lines
++ Fixed bug where player doesn't transition smoothly vertically with vertical warping enabled.
 
 KNOWN BUGS:
 
