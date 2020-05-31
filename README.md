@@ -36,10 +36,10 @@ If you want to add a new stage to the game, add a new level object to `levels.vv
 
 KNOWN BUGS:
 
-With good alignment, you can partially clip inside a wall to avoid hitboxes.
-Clips inside walls for 1 frame, can't flip off the blocks though.
-Vertical platforms
-Running into a wall with a spike on it may ocassionally kill the player, even though the wall should always take priority
-Will sometimes "snap" if on a horizontal platform (???)
-If 2 players are rendered at once, only one will play a death animation
-Player moves 3 pixels into vertical platform moving upwards, purposefully 
++ With good alignment, you can partially clip inside a wall to avoid hitboxes
++ Player clips inside walls for 1 frame, can't flip though
++ Vertical platforms :/
++ Running into a wall with a spike on it may ocassionally kill the player, even though the wall should always take priority
++ Will sometimes "snap" if on a horizontal platform (???)
++ If 2 players are rendered at once, only one will play a death animation
++ Player moves 3 pixels into vertical platform moving upwards, purposefully 
