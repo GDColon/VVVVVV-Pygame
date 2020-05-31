@@ -6,14 +6,13 @@ from palette import Palette
 pygame.mixer.pre_init(44100, -16, 2, 1024)  # Removes sound latency
 pygame.init()
 
-screenSize = [960, 640]
+screenSize = [960, 640] # 960 , 640
 screen = pygame.display.set_mode(screenSize)
 pygame.display.set_caption("VVVVVV")
 pygame.display.set_icon(pygame.image.load("./assets/icon.png"))
 epstein_didnt_kill_himself = True
 clock = pygame.time.Clock()
-pygame.mixer.music.set_volume(0.4)
-
+volume_slider = 0.4
 # COLORS
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -52,6 +51,7 @@ enemySheetLarge = Spritesheet("./assets/enemies_large.png")
 menuBG = pygame.image.load("./assets/menuBG.png").convert()
 levelComplete = pygame.image.load("./assets/levelcomplete.png").convert()
 logo = pygame.image.load("./assets/logo.png").convert()
+fadeout = pygame.image.load("./assets/fadeout.png").convert()
 logo.set_colorkey(BLACK)
 
 # Pre-render some text since it never changes
@@ -69,16 +69,49 @@ levelMusic = levels[0]["music"]
 with open("records.vvvvvv", 'r') as recordArray:
     records = json.loads(recordArray.read())
 
+##        LIST OF CHANGES:
+
+##          Added acceleration to make movement more smooth.
+##          Adjusted Fall speed (20 -> 16)
+##          Adjusted conveyor belt strength (5 -> 4)
+##          Fixed clipping issue with floor and ceiling
+##          Added buffer system for non-vertical platforms (how to fix?)
+##          Added death animation
+##          Polished ending cutscene to be more like VVVVVV's
+##          Added more forgiveness with fatal hitboxes in the form of invincibility frames:
+##              Enemies require 2 consecutive frames of contact
+##              Spikes require 3 consecutive frames, but if grounded, window is reduced to 1 frame of contact.
+##          Slightly lowered enemy forgiveness (20 -> 16)
+##          Slightly lowered large enemy forgiveness ([35, 32, 38, 40] -> [30, 26, 38, 40])
+##          When walking off solid ground, gradually accelerate up to maximum fall speed
+##              Indirectly nerfs coyote frames, which prevents clipping through gravity lines
+##          Slightly adjusted physics when colliding with gravity lines
+##          Slightly lowered volume of gravity lines
+##          Fixed bug where player doesn't transition smoothly vertically with vertical warping enabled.
+
+
+
+##        KNOWN BUGS:
+
+##          With good alignment, you can partially clip inside a wall to avoid hitboxes.
+##          Clips inside walls for 1 frame, can't flip off the blocks though.
+##          Vertical platforms
+##          Running into a wall with a spike on it may ocassionally kill the player, even though the wall should always take priority
+##          Will sometimes "snap" if on a horizontal platform (???)
+##          If 2 players are rendered at once, only one will play a death animation
+##          Player moves 3 pixels into vertical platform moving upwards, purposefully implemented to allow coyote frames and buffering from vertical platforms.
 # CLASSES
 
 class Player:
     def __init__(self):
-        self.x = 0          # Player X
-        self.y = 0          # Player Y
-        self.width = 48     # Player width, for collission detection
-        self.height = 96    # Player height
-        self.speed = 12     # Player X speed
-        self.velocity = 20  # Player Y speed
+        self.x = 0              # Player X
+        self.y = 0              # Player Y
+        self.width = 48         # Player width, for collission detection
+        self.height = 96        # Player height
+        self.speed = 12         # Player X maximum speed
+        self.velocitymax = 16   # Player Y maximum speed
+        self.velocity = 16      # Player Y current speed
+        self.acceleration = 0   # Player X current speed
 
         # These values are dispalyed when completing a level and saved as high scores
         self.deaths = 0
@@ -106,8 +139,14 @@ class Player:
         self.coyoteTimer = 0       # ^ timer
         self.deathStall = 60       # Time to wait before respawning
         self.deathTimer = 0        # ^ timer
-        self.winTimer = 0          # How many frames have passed since you beat the level - for timing the win cutscnee
-
+        self.winTimer = 0          # How many frames have passed since you beat the level - for timing the win cutscene
+        self.textboxBuffer = False # Set to true in ending cutscene to progress to main menu
+        self.bufferWindow = 7      # The buffer window for inputting a flip
+        self.buffer = 0            # ^ timer      
+        self.localTimer = 0        # Timer used for detecting collision
+        self.flipable = False      # Able to flip directions?
+        self.pendingDie = 0        # If over 1, kill the player. Die() adds 1 every frame.
+        self.pendDieTemp = 0       # ^ temp
     def refresh(self):
         # Reset these values, calculate them later
         self.grounded = False
@@ -124,12 +163,12 @@ class Player:
 
     def touching(self, objecttop, forgiveness=0, size=[1, 1]):  # Check if hitbox is touching player
         playertop = [self.x, self.y]
-        playerbottom = [playertop[0] + self.width, playertop[1] + self.height]
+        playerbottom = [playertop[0] + self.width, playertop[1] + self.height]  
         objectbottom = [objecttop[0] + (32 * size[0]), objecttop[1] + (32 * size[1])]
-        objecttop[0] += forgiveness  # Forgiveness shrinks the hitbox by the specified amount of pixels
-        objectbottom[0] -= forgiveness  # ^ it makes spikes and enemies more generous, etc
-        objecttop[1] += forgiveness
-        objectbottom[1] -= forgiveness
+        objecttop[0] += forgiveness    # Forgiveness shrinks the hitbox by the specified amount of pixels
+        objectbottom[0] -= forgiveness # ^ it makes spikes and enemies more generous, etc
+        objecttop[1] += forgiveness * 1
+        objectbottom[1] -= forgiveness * 1
         return collision(playertop, playerbottom, objecttop, objectbottom)
 
     def turn(self):  # Flip player X
@@ -142,31 +181,77 @@ class Player:
             self.flips += 1
             if self.flipped:
                 sfx_flop.play()
+##                self.y -= 8
             else:
+##                self.y += 8
                 sfx_flip.play()
         for num in range(30, 33):
             sprites[num] = pygame.transform.flip(sprites[num], False, True)
         self.flipped = not self.flipped
 
     def die(self):  # Kill the player
-        sfx_hurt.play()
-        self.alive = False
-        self.deaths += 1
-
+        self.pendDieTemp = 0
+        if self.pendingDie >= 1:
+            sfx_hurt.play()
+            self.acceleration = 0 # Remove all movement before dying
+            self.buffer = 0 # Can't flip after death :P
+            self.alive = False
+            self.deaths += 1
+            self.pendingDie = 0
+            self.pendDieTemp = 0
+        else:
+            self.pendingDie += 1
+            
     def exist(self):  # Buckle up, this one's a big boy
         global breakingPlatforms, ingame, savedGame
-
         # Gravity line easing
         if self.touchedLine:
-            self.velocity -= round(savedVelocity / 5)
+            self.velocity -= round(savedVelocity / 5.5)
+            self.coyoteTimer = self.coyoteFrames
         elif self.velocity < savedVelocity:
-            self.velocity += round(savedVelocity / 5)
-        if self.velocity <= 0:
+            self.velocity += round(savedVelocity / 5.5)
+            self.coyoteTimer = self.coyoteFrames
+        if self.velocity <= 1:
+            if self.flipped:
+                self.y += 2
+            if not self.flipped:
+                self.y -= 2
             self.flip(True)
             self.touchedLine = False
 
         if self.alive:  # If you're alive...
+            if self.pendingDie >= 0:
+                self.pendDieTemp += 1
+            if self.pendingDie > 0 and self.pendDieTemp >= 5:
+                self.pendingDie = 0
+                self.pendDieTemp = 0
+                
+            if self.buffer < self.bufferWindow and self.buffer > 0:
+                self.buffer += 1
+            elif self.buffer >= self.bufferWindow:
+                self.buffer = 0
+            if (self.grounded or self.coyoteTimer < self.coyoteFrames) and self.buffer >= 0 and self.buffer < self.bufferWindow and self.velocity == savedVelocity:
+                self.flipable = True
+            else:
+                self.flipable = False
+            if self.flipable == True and self.buffer > 0 and self.velocity == savedVelocity:
+                self.flip()  # If you're on the ground and pressed the flip key, flip
+                self.coyoteTimer = self.coyoteFrames  # Disable coyote flipping
+                self.flipable = False
+                self.buffer = 0
 
+
+            if self.localTimer < -1 and self.acceleration > 0:
+                player.x = math.ceil(player.x / 32) * 32 - 12
+            if self.localTimer > 1 and self.acceleration < 0:
+                player.x = math.ceil(player.x / 32) * 32 - 4
+            if player.blocked[0] == False and player.blocked[1] == False:
+                self.localTimer = 0
+            elif player.blocked[0]:
+                self.localTimer += 1
+            elif player.blocked[1]:
+                self.localTimer -= 1
+                
             if not self.grounded:
                 yOff = 3
                 playerTile = self.getStandingOn(False)
@@ -178,31 +263,55 @@ class Player:
                     if objID == -1:
                         objID = getobj([snap(self.x) + i, playerTile[1] + yOff], 2)  # Check sprite layer
                     solidArr.append(issolid(objID))
-                if solidArr == [True, False, True]:  # If you're sandwiched between two solid blocks...
+                if solidArr == [True, False, True]:  # If you're sandwiched between two solid blocks... 
                     self.grounded = True  # ...consider the player grounded
-
+                    
+            if self.verticalPlatform[0] != -999:  # If you ARE on a vertical platform
+                self.grounded = True  # Consider the player grounded
+                self.flipable = True
+                self.coyoteTimer = 0
+                if self.flipped:  # If flipped
+                    if self.y - self.verticalPlatform[0] >= 16 and self.y - self.verticalPlatform[0] <= 48:
+                        self.y = self.verticalPlatform[0] + 32  # SET the player Y position to below the platform
+                    if not self.verticalPlatform[1]:
+                        self.y -= 6  # If moving up, tweak the position a little
+                else:  # If not flipped
+                    if self.y - self.verticalPlatform[0] >= -112 and self.y - self.verticalPlatform[0] <= -80:
+                        self.y = self.verticalPlatform[0] - self.height  # SET the player Y position to above the platform
+                    if self.verticalPlatform[1]:
+                        self.y += 3  # If moving down, tweak the position a little
+                        
             if not self.grounded:  # If the player is STILL not grounded...
                 self.coyoteTimer += 1  # Start coyote timer, which allows flipping for a few frames after leaving the ground
+                
+##                if self.coyoteTimer >= 0 and self.velocity < self.velocitymax:
+##                        self.velocity = (self.velocity * 1.9) + 0.001
+##                elif self.coyoteTimer <= 2 and self.velocity >= self.velocitymax:
+##                        self.velocity = self.velocitymax
+##                elif self.velocity > self.velocitymax:
+##                        self.velocity = self.velocitymax
+##                else:
+##                        self.velocity = 0
                 if self.flipped:
+                    if self.coyoteTimer > 0 and self.coyoteTimer < 5 and self.velocity == savedVelocity:
+                        self.y += 8
+                    if self.coyoteTimer > 4 and self.y % 16 > 0:
+                        self.y += 1
                     self.y -= self.velocity  # Fall up!
                 else:
+                    if self.coyoteTimer > 0 and self.coyoteTimer < 5 and self.velocity == savedVelocity:
+                        self.y -= 8
+                    if self.coyoteTimer > 4 and self.y % 16 > 0:
+                        self.y -= 1
                     self.y += self.velocity  # Fall down!
+                    
             elif self.verticalPlatform[0] == -999:  # If you're NOT touching a vertical platform
                 if self.flipped:
                     self.y = math.ceil(self.y / 32) * 32  # Round Y position to nearest 32 if grounded
                 else:
                     self.y = snap(self.y) * 32
-            if self.verticalPlatform[0] != -999:  # If you ARE on a vertical platform
-                self.grounded = True  # Consider the player grounded
-                if self.flipped:  # If flipped
-                    self.y = self.verticalPlatform[0] + 32  # SET the player Y position to below the platform
-                    if not self.verticalPlatform[1]:
-                        self.y -= 3  # If moving up, tweak the position a little
-                else:  # If not flipped
-                    self.y = self.verticalPlatform[0] - self.height  # SET the player Y position to above the platform
-                    if self.verticalPlatform[1]:
-                        self.y += 3  # If moving down, tweak the position a little
 
+                        
             if self.winTimer > 0:
                 # If you touched a teleporter, pathfind to winTarget (center of the teleporter)
                 if self.winTarget[1] and self.x < self.winTarget[0] and not self.blocked[1]:
@@ -216,32 +325,65 @@ class Player:
                     self.walking = True
                     self.animationTimer += 1
 
-            elif (key[pygame.K_RIGHT] or key[pygame.K_d]) and (key[pygame.K_LEFT] or key[pygame.K_a]):
-                self.walking = False  # If pressing left and right at the same time, disable movement entirely
-
-            elif key[pygame.K_RIGHT] or key[pygame.K_d]:
+##            elif (key[pygame.K_RIGHT] or key[pygame.K_d]) and (key[pygame.K_LEFT] or key[pygame.K_a]):
+##                # If pressing left and right at the same time, disable movement entirely
+##                self.acceleration = self.acceleration / 1.5
+                    
+            elif key[pygame.K_RIGHT] or key[pygame.K_d] and not (key[pygame.K_LEFT] or key[pygame.K_a]):
                 if not self.blocked[1]:
-                    self.x += self.speed  # Move right if you're able to
+                    if self.acceleration <= self.speed:
+                        self.acceleration += 2.2
+                    if self.acceleration < 0:
+                        self.acceleration += 2.2
+                    if self.acceleration > self.speed:
+                        self.acceleration = self.speed
+                    if self.blocked[0]:
+                        self.x += 2.2
+                    self.x += self.acceleration  # Move right if you're able to
                     self.animationTimer += 1
                     self.walking = True
                 self.movement[1] = True
-            elif key[pygame.K_LEFT] or key[pygame.K_a]:
+            elif key[pygame.K_LEFT] or key[pygame.K_a] and not (key[pygame.K_RIGHT] or key[pygame.K_d]):
                 if not self.blocked[0]:
-                    self.x -= self.speed  # Move left if you're able to
+                    if self.acceleration >= -self.speed:
+                        self.acceleration -= 2.2
+                    if self.acceleration > 0:
+                        self.acceleration -= 2.2
+                    if self.acceleration < -self.speed:
+                        self.acceleration = -self.speed
+                    if self.blocked[1]:
+                        self.x -= 2.2
+                    self.x += self.acceleration  # Move left if you're able to
                     self.animationTimer += 1
                     self.walking = True
                 self.movement[0] = True
+            else:
+                self.acceleration = self.acceleration / 1.5
+                if self.blocked[0] and self.blocked[1]:
+                    self.acceleration = self.acceleration * 1.5
+                if self.blocked[0] or self.blocked[1]:
+                    self.acceleration = 0
+                if self.acceleration < 1 and self.acceleration > -1:
+                    self.acceleration = 0
+                self.x += self.acceleration
+
+                
 
             if not self.walking:
                 self.animationTimer = self.animationSpeed - 1  # Change to 'walking' sprite as soon as you start moving again
-
+                
             for event in events:
                 if event.type == pygame.KEYDOWN and self.winTimer == 0:
-                    if (self.grounded or self.coyoteTimer < self.coyoteFrames) and self.velocity == savedVelocity and event.key in flipKeys:
-                        self.flip()  # If you're on the ground and pressed the flip key, flip
-                        self.coyoteTimer = self.coyoteFrames  # Disable coyote flipping
+                    if event.key in flipKeys:
+                        self.buffer = 1
+                    if event.key in flipKeys and self.flipable and self.velocity == savedVelocity:
+                        self.flip()
+                        self.coyoteTimer = self.coyoteFrames
+                        self.flipable = False
+                        self.buffer = 0
                     if event.key == pygame.K_r:
                         self.die()  # Die if you press R
+                        self.die()
                     if event.key == pygame.K_COMMA:  # Debug, moves player 1 pixel at a time
                         self.x -= 1
                     if event.key == pygame.K_PERIOD:
@@ -255,21 +397,26 @@ class Player:
             if (self.movement[0] and self.facingRight) or (self.movement[1] and not self.facingRight):
                 self.turn()  # Flip player X when necessary
 
-            if self.y < -30:  # Top exit
+            if self.y < -32:  # Top exit
                 if room.meta["warp"] < 2 or player.flipped:
-                    newroom([0, 1], [self.x, screenSize[1] - 10], 2)
-            if self.y > screenSize[1] - 10:  # Bottom Exit
+                    newroom([0, 1], [self.x, screenSize[1] - 16], 2)
+            if self.y > screenSize[1] - 16:  # Bottom Exit
                 if room.meta["warp"] < 2 or not player.flipped:
-                    newroom([0, -1], [self.x, -30], 2)
-            if self.x < -32:  # Left Exit
-                newroom([-1, 0], [screenSize[0] - 15, self.y], 1)
-            if self.x > screenSize[0] - 15:  # Right Exit
-                newroom([1, 0], [-32, self.y], 1)
+                    newroom([0, -1], [self.x, -32], 2)
+            if self.x < -31:  # Left Exit
+                newroom([-1, 0], [screenSize[0] - 14, self.y], 1)
+            if self.x > screenSize[0] - 13:  # Right Exit
+                newroom([1, 0], [-30, self.y], 1)
 
         else:  # If dead
-            self.deathTimer += 1  # Increase death timer
+            self.deathTimer += 1 # Increase death timer
+            if self.deathTimer % 8 < 6 and self.deathTimer < 45:
+                self.hidden = False # Adds flashing to the death animation
+            else:
+                self.hidden = True
             if self.deathTimer >= self.deathStall:  # After you were dead for a little while...
                 self.deathTimer = 0
+                self.hidden = False
                 oldX, oldY = [room.x, room.y]
                 room.x, room.y, self.x, self.y, spawnFlipped = checkpoint  # Respawn at checkpoint
                 self.x = (math.floor(self.x / 8) * 8) + 10  # Round X position a little
@@ -285,19 +432,24 @@ class Player:
                     self.flip(True)  # Flip if necessary
 
         if self.winTimer > 0:   # Win cutscene
+            if self.winTimer < 80:
+                pygame.mixer.music.set_volume(volume_slider / 80 * (80 - self.winTimer))
             self.winTimer += 1
-            if self.winTimer in [60, 120, 150]:
-                flash(8)    # Flash screen three times...
+            if self.winTimer < 10:
+                local = 0
+            if self.winTimer in [70, 130, 161 , 192]:
+                flash(8)    # Flash screen four times...
                 sfx_bang.play()
-            if self.winTimer == 220:
+            if self.winTimer == 235:
                 self.hidden = True      # ...then hide the player...
                 pygame.mixer.music.stop()
+                pygame.mixer.music.set_volume(volume_slider)
                 sfx_tele.play()
-            if self.winTimer == 320:
-                pygame.mixer.music.load("./assets/music/fanfare.ogg")  # ...then play a little jingle...
+            if self.winTimer == 335:
+                pygame.mixer.music.load("./assets/music/fanfare2.ogg")  # ...then play a little jingle...
                 pygame.mixer.music.play(1)
 
-            if self.winTimer > 320:
+            if self.winTimer > 335 and self.textboxBuffer == False:
                 screen.blit(levelComplete, (160, 50))   # ...then display "level complete"...
 
                 messages = [    # These messages will display one by one
@@ -306,7 +458,7 @@ class Player:
                     "Deaths: " + str(player.deaths),
                     "Time: " + str(player.mins) + ":" + str(player.secs).zfill(2) + "." + str(round(player.frames / 60 * 100)).zfill(2),
                     "Congratulations!",
-                    "Press SPACE to continue"
+                    "Press ACTION to continue"
                 ]
 
                 if not len(self.winLines):
@@ -314,17 +466,18 @@ class Player:
                         msg = font.render(messages[i], 1, WHITE)  # Render
                         msgPos = (screenSize[0] / 2) - (msg.get_width() / 2)  # Center
                         self.winLines.append([msg, msgPos])  # Save
-
-            # Display the messages in the array above, line by line
-            if self.winTimer > 420: screen.blit(self.winLines[0][0], (self.winLines[0][1], 200))
-            if self.winTimer > 480: screen.blit(self.winLines[1][0], (self.winLines[1][1], 300))
-            if self.winTimer > 500: screen.blit(self.winLines[2][0], (self.winLines[2][1], 350))
-            if self.winTimer > 520: screen.blit(self.winLines[3][0], (self.winLines[3][1], 400))
-            if self.winTimer > 550: screen.blit(self.winLines[4][0], (self.winLines[4][1], 500))
-            if self.winTimer > 800:
+            # Display the messages in the array above, line by line            
+            if self.winTimer > 335 and self.textboxBuffer == False: screen.blit(self.winLines[0][0], (self.winLines[0][1], 200))
+            if self.winTimer > 410 and self.textboxBuffer == False: screen.blit(self.winLines[1][0], (self.winLines[1][1], 300))
+            if self.winTimer > 455 and self.textboxBuffer == False: screen.blit(self.winLines[2][0], (self.winLines[2][1], 350))
+            if self.winTimer > 500 and self.textboxBuffer == False: screen.blit(self.winLines[3][0], (self.winLines[3][1], 400))
+            if self.winTimer > 565 and self.textboxBuffer == False: screen.blit(self.winLines[4][0], (self.winLines[4][1], 500))
+            if self.winTimer > 690 and self.textboxBuffer == False: 
                 screen.blit(self.winLines[5][0], (self.winLines[5][1], 550))
                 for event in events:
-                    if event.type == pygame.KEYDOWN and event.key in flipKeys:  # When you press SPACE (or any flip key) to quit to menu
+                    if event.type == pygame.KEYDOWN and event.key in flipKeys and self.winTimer > 695:  # When you press SPACE (or any flip key) to quit to menu
+                        self.textboxBuffer = True                               # Will wait 1 second after this textbox appears for winTimer to stop.
+                                                                                # If pressed, continue the timer.
                         postedRecord = False
                         record = [levelFolder, [player.mins, player.secs, player.frames], player.deaths]    # Store time and deaths
                         for r in range(len(records)):
@@ -338,7 +491,12 @@ class Player:
                         if not postedRecord:
                             records.append(record)  # If no previous record exists, store this run as the record
                         with open("records.vvvvvv", 'w') as data: json.dump(records, data)  # Save to record file
-
+                        
+            if self.winTimer > 760 and self.textboxBuffer == False: #Freezes the timer until the ACTION key is pressed
+                        self.winTimer = 760            
+            if self.winTimer > 765 and self.winTimer < 815: screen.blit(fadeout, (-1448 + ((self.winTimer - 765) * 24), 0)) #Move the fadeout image across the screen
+            if self.winTimer >= 815: screen.blit(fadeout, (0, 0))
+            if self.winTimer > 825:
                         # Quit level, delete save, display menu
                         ingame = False
                         sfx_save.play()
@@ -371,17 +529,20 @@ class Player:
             screen.blit(sprites[spriteNumber], (self.x, self.y))  # Render player
 
         if room.meta["warp"] == 1:  # If warping is enabled, render a second player if they're touching a screen border
-            if self.x < 30:
+            if self.x < 33:
                 screen.blit(sprites[spriteNumber], (self.x + screenSize[0] + 18, self.y))
-            elif self.x > screenSize[0] - 30:
+            elif self.x > screenSize[0] - 33:
                 screen.blit(sprites[spriteNumber], (self.x - screenSize[0] - 18, self.y))
 
         if room.meta["warp"] == 2:  # Same as above but for vertical warping
-            if self.y < 40:
+            if self.y < 32:
                 screen.blit(sprites[spriteNumber], (self.x, self.y + screenSize[1]))
+                if self.alive and self.velocity == 16 and not self.grounded and self.flipped:
+                    self.y -=16
             elif self.y > screenSize[1] - 100:
                 screen.blit(sprites[spriteNumber], (self.x, self.y - screenSize[1]))
-
+                if self.alive and self.velocity == 16 and not self.grounded and not self.flipped:
+                    self.y +=16
 
 class Room:
     def __init__(self, x=5, y=5):
@@ -394,6 +555,7 @@ class Room:
         self.lines = []         # Array of all the gravity lines in the room
         self.meta = {"name": "Outer Space", "color": 0, "tileset": 7, "warp": 0, "enemyType": [1, 1, 1]}    # Metadata
         self.exists = True
+        self.platformException = False
 
         try:  # Attempt to open the room file
             with open("./" + levelFolder + "/" + str(self.x) + "," + str(self.y) + '.vvvvvv', 'r') as lvl:
@@ -517,9 +679,9 @@ class Room:
                 if not l[4]:    # If gravity line is touched and not on cooldown
                     sfx_blip.play()
                     player.touchedLine = True   # Flip gravity, ease the player's velocity a bit
-                    l[4] = 2
+                    l[4] = lineCooldown
                     if l[3]:
-                        l[4] += lineCooldown
+                        l[4] = lineCooldown - 2
             elif l[4] > 0:  # Decrease line cooldown, only when not touching it
                 l[4] -= 1
             line(screen, grey(lineCol), (linePos[0], linePos[1]), (linePos[0] + lineSize[0], linePos[1] + lineSize[1]), lineWidth)
@@ -534,7 +696,6 @@ class Room:
                 if tileZ == z:  # Layer objects correctly (blocks < spikes < entities)
 
                     spriteNum = self.tiles[i]
-
                     if spriteNum == 33 or spriteNum == 35:  # Checkpoints
                         offset = -32
                         saveflipped = False
@@ -547,12 +708,28 @@ class Room:
                             setcheckpoint(tileX * 32, (tileY * 32) + offset,
                                           saveflipped)  # Set checkpoint if not activated
 
+                                
                     if 26 <= spriteNum <= 29 and player.alive:  # If object is a spike
                         if player.touching([tileX * 32, tileY * 32], 12):
-                            player.die()  # If you touch a spike, die!
-
+                                player.die()# If you touch a spike, die!
+                                player.pendingDie -= 0.4
+                                if (player.grounded or player.flipable) and self.platformException == False:
+                                    player.pendingDie == 0
+                                    player.die()
+                                    player.die()
+                            
                     if player.alive and issolid(spriteNum):  # If object is a solid block
 
+##                        if 0 <= spriteNum <= 12:            
+##                            if player.touching([tileX * 32, tileY * 32], 2):
+##                                if player.grounded == False and not (player.blocked[0] or player.blocked[1]) and (player.acceleration < 3 or player.acceleration > -3):
+##                                    if  player.x % 32 < 26 and player.x % 32 > 20:
+##                                        player.x += 8
+##                                        player.blocked[0] == True
+##                                    if player.x % 32 > 6 and player.x % 32 < 12:
+##                                        player.x -= 8
+##                                        player.blocked[1] == True
+                        
                         if 37 <= spriteNum <= 40:  # Resize hitbox if object is a breaking platform
                             if not i in breakingPlatforms:  # If not considered 'breaking' yet
                                 if solidblock(4, tileX * 32 + 5, tileY * 32):
@@ -565,10 +742,12 @@ class Room:
                         elif solidblock(1, tileX * 32, tileY * 32):  # Ground/block player if touching a solid block
                             if 42 <= spriteNum <= 45:  # If tile is a left moving conveyor
                                 if not player.blocked[0]:  # Move left if not blocked
-                                    player.x -= conveyorSpeed
+                                    if not (player.blocked[1] and player.acceleration > 10): #If wall to the right and holding right, conveyor doesn't move left
+                                        player.x -= conveyorSpeed
                             if 46 <= spriteNum <= 49:  # If tile is a right moving conveyor
                                 if not player.blocked[1]:  # Move right if not blocked
-                                    player.x += conveyorSpeed
+                                    if not (player.blocked[0] and player.acceleration < -9): #If wall to the left and holding left, conveyor doesn't move right
+                                        player.x += conveyorSpeed
 
                     if i in breakingPlatforms:  # Render breaking platforms
                         if player.alive: breakingPlatforms[i] += 1
@@ -615,7 +794,7 @@ class Enemy:
     def __init__(self, arr):
         self.x, self.y, self.xSpeed, self.ySpeed, self.type = arr
         self.size = 2 * (arr[4]+1)
-        self.hitbox = 20
+        self.hitbox = 16
         self.sprite = room.meta["enemyType"][self.type]
 
         if self.size == 4:
@@ -679,7 +858,8 @@ class Platform:
         # HORIZONTAL PLATFORMS (easy)
         if self.ySpeed == 0 and solidblock(4 + (self.xSpeed != 0), self.x, self.y):  # Move player with the platform
             if self.xSpeed < 0 and not player.blocked[0] or self.xSpeed > 0 and not player.blocked[1]:  # If left/right is not blocked...
-                if player.alive: player.x += self.xSpeed  # Move with the platform
+                if not ((player.acceleration < -4 and player.blocked[0]) or (player.acceleration > 4 and player.blocked[1])):
+                    if player.alive: player.x += self.xSpeed  # Move with the platform
 
         # VERTICAL PLATFORMS (hard!!)
         elif self.xSpeed == 0:
@@ -790,7 +970,7 @@ warpBGs = []                      # Array of warp backgrounds
 teleporters = []                  # Array of teleporter frames
 enemySprites = [[], []]           # Array of all the enemy textures
 enemyCounts = [12, 4]             # How many enemies there are, for each type
-largeHitboxes = [35, 32, 38, 40]  # Hitbox sizes of large 4x4 enemies
+largeHitboxes = [30, 26, 38, 40]  # Hitbox sizes of large 4x4 enemies
 
 stars = []              # Array of all the stars in the background
 rects = []              # Array of all the rectangles in the lab background
@@ -807,14 +987,15 @@ bgCol = (0, 0, 0, 0)
 starRate = 4            # How frequently background stars spawn (every nth frame)
 starSpeed = 12          # How fast the average background star moves
 menuBGSpeed = 2         # How fast the menu background moves
-warpBGSpeed = 4         # How fast the warp background moves
+warpBGSpeed = 5         # How fast the warp background moves
 breakSpeed = 6          # How quickly platforms break
 enemyAnimation = 12     # How quickly enemies animate
 conveyorAnimation = 12  # How quickly conveyors animate
-conveyorSpeed = 5       # How fast conveyors move the player
+conveyorSpeed = 4       # How fast conveyors move the player
 lineWidth = 4           # Thickness of gravity lines
-lineCooldown = 10       # Delay before being able to reuse a vertical gravity line
+lineCooldown = 14       # Delay before being able to reuse a vertical gravity line
 flashTime = 30          # How long the screen should flash white for. Value changes when using flash()
+
 
 # When certain events are met, these will increment every frame until reaching their timer value above
 starTime = 0
@@ -959,21 +1140,40 @@ def isspike(obj):     # Check if object is a spike
 def solidblock(blocksize, tx, ty):  # When the player comes in contact with a solid block
     global standingOn, player
     isstanding = False  # Guilty until proven innocent
-
     for blockTile in range(1, blocksize + 1):   # For larger objects (e.g. platforms), check each tile
         gridspace = tx + (32 * (blockTile - 1))
-        if (snap(gridspace) == standingOn[0] or snap(gridspace) == standingOn[0] + 1) and snap(ty) == \
-                standingOn[1] and 26 > player.x + 7 - gridspace > -26:
-            player.grounded = True     # If you're standing on a block...
-            isstanding = True   # Looks like you're standing!
-            player.coyoteTimer = 0      # Reset coyote timer
+
+##        if player.touching([gridspace, ty]):  # If block is next to you
+##            if player.x + 11 < gridspace and not player.x - 11 >= gridspace:
+##                player.blocked[1] = True  # Block right
+##                player.acceleration = -2
+##            elif player.x - 11 >= gridspace and not player.x + 11 < gridspace:
+##                player.blocked[0] = True  # Block left
+##                player.acceleration = 2
 
         if player.touching([gridspace, ty]):  # If block is next to you
+
             if player.x < gridspace:
                 player.blocked[1] = True  # Block right
             elif player.x >= gridspace:
                 player.blocked[0] = True  # Block left
 
+
+
+##        if player.touching([gridspace, ty]):  # If block is next to you
+##            if player.x + 12 < gridspace:
+##                player.blocked[1] = True  # Block right
+##                player.x = math.ceil(player.x / 12) * 12 - 9
+##            elif player.x - 12 >= gridspace:
+##                player.blocked[0] = True  # Block left
+##                player.x = math.ceil(player.x / 12) * 12 - 3
+
+        if (snap(gridspace) == standingOn[0] or snap(gridspace) == standingOn[0] + 1) and snap(ty) == \
+                standingOn[1] and 26 > player.x + 7 - gridspace > -26:
+            player.grounded = True     # If you're standing on a block...
+            isstanding = True   # Looks like you're standing!
+            player.coyoteTimer = 0      # Reset coyote timer
+            
     return isstanding
 
 
@@ -1243,7 +1443,7 @@ while epstein_didnt_kill_himself:   # Runs every frame @ 60 FPS
 
     else:
         runMenus()   # Menus!
-
+        pygame.mixer.music.set_volume(volume_slider)
     for event in events:
         if event.type == pygame.QUIT:   # Allow quitting
             epstein_didnt_kill_himself = False  # Pygame disagrees with this and closes the program
