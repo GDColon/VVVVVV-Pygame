@@ -1,5 +1,9 @@
-import pygame, json, math, random, os
-from pygame.draw import line, rect
+import os
+try:
+    import pygame, json, math, random, os
+    from pygame.draw import line, rect
+except ImportError:
+    os.system('py3 -m pip install pygame')
 from spritesheet import Spritesheet
 from palette import Palette
 
