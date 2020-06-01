@@ -9,4 +9,4 @@ If you want to add a new stage to the game, add a new level object to `levels.vv
 
 2. Install Pygame by typing `py -m pip install pygame` in the command prompt. Try changing `py` to `python3` or `python` if it doesn't work.
 
-3. Run `vvvvvv.py` (or `editor.py`) by opening the command prompt in the current folder and typing `py vvvvvv.py`. Or you can just use an IDE like PyCharm like I did.
+3. Run `vvvvvv.py` (or `editor.py`) by opening the command prompt in the current folder and typing `py vvvvvv.py`. Or you can just run the batch files, or use an IDE.
