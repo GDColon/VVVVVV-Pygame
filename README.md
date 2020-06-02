@@ -34,9 +34,25 @@ If you want to add a new stage to the game, add a new level object to `levels.vv
 + Slightly lowered volume of gravity lines
 + Fixed bug where player doesn't transition smoothly vertically with vertical warping enabled.
 
+### v1.1:
+
++ Added more menus!
++ Added customizable music packs! 2 packs are currently implemented
+	+ Theoretically, infinite packs are supported. Simply create another folder with the tracks you want
++ Added adjustable music volume slider
++ Added adjustable sfx volume slider
++ Added cheats, enabling 1 or more will disable saving scores and overlay the game with a red "C"
+	+ Made debug mode toggleable (F3, C+H, and period/comma)
+	+ Added Invincibility mode
+	+ Added Flips in mid-air
+	+ Makes speedruns more practical since it is now obvious if someone is cheating
++ HUD display is now adjustable in-game
++ Adjusted gravity line physics again
++ Adjusted entry and exit points at horizontal seams based on speed of player
++ Fixed bug that allowed you to be further in a wall than normal
+
 KNOWN BUGS:
 
-+ With good alignment, you can partially clip inside a wall to avoid hitboxes
 + Player clips inside walls for 1 frame, can't flip though
 + Vertical platforms :/
 + Running into a wall with a spike on it may ocassionally kill the player, even though the wall should always take priority
