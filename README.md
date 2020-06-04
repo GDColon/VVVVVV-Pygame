@@ -39,8 +39,8 @@ If you want to add a new stage to the game, add a new level object to `levels.vv
 + Added more menus!
 + Added customizable music packs! 2 packs are currently implemented
 	+ Theoretically, infinite packs are supported. Simply create another folder with the tracks you want
-+ Added adjustable music volume slider
-+ Added adjustable sfx volume slider
++ Added adjustable music slider
++ Added adjustable sfx slider
 + Added cheats, enabling 1 or more will disable saving scores and overlay the game with a red "C"
 	+ Made debug mode toggleable (F3, C+H, and period/comma)
 	+ Added Invincibility mode
@@ -48,14 +48,28 @@ If you want to add a new stage to the game, add a new level object to `levels.vv
 	+ Makes speedruns more practical since it is now obvious if someone is cheating
 + HUD display is now adjustable in-game
 + Adjusted gravity line physics again
-+ Adjusted entry and exit points at horizontal seams based on speed of player
-+ Fixed bug that allowed you to be further in a wall than normal
++ Can buffer flips off of vertical platforms
+
+### v1.2:
+
++ New debug feature! Pressing 'K' and 'L' will allow you to change your max framerate by 1.
+	+ Play the game frame-by-frame! Very useful for figuring out bugs :)
++ Settings will now save in "settings.vvvvvv"
++ Adjusted gravity line physics again, I just can't seem to get this right
++ Changed player width from 48 -> 50. Gravity lines aren't affected by this change
+	+ Helps prevent falling into 1 block gaps you shouldn't be able to fall into
+	+ Makes collision with walls marginally better (The alignment that previously clipped the farthest into walls won't anymore)
++ Changed conveyor belt physics slightly to prevent clipping fully into walls, conveyor belts are also slightly stronger than before
++ Music pack 2 is now 100% siIvagunner :)
 
 KNOWN BUGS:
 
-+ Player clips inside walls for 1 frame, can't flip though
-+ Vertical platforms :/
++ Player "clips" inside walls for 2 frames, can't flip off any of the blocks though
++ While using a horizontal gravity line with solid ground 2 blocks above or below it, the player gets "stuck", despite not actually touching the ground/ceiling.
++ When transitioning to a different room, the name and the player render 1 frame before the room renders
 + Running into a wall with a spike on it may ocassionally kill the player, even though the wall should always take priority
-+ Will sometimes "snap" if on a horizontal platform (???)
-+ If 2 players are rendered at once, only one will play a death animation
++ The existence of vertical platforms :/
++ Will sometimes "snap" if standing on a horizontal platform (???)
++ When to the right of a horizontal platform, the platform pushes you as if it were 5 tiles long
++ If 2 players are rendered at once, only one will play the death animation
 + Player moves 3 pixels into vertical platform moving upwards, purposefully 
