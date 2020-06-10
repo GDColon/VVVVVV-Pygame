@@ -10,34 +10,23 @@ from palette import Palette
 pygame.mixer.pre_init(44100, -16, 2, 1024)  # Removes sound latency
 pygame.init()
 
-screenSize = [960, 640]
+screenSize = [960, 640] # 960 , 640
 screen = pygame.display.set_mode(screenSize)
 pygame.display.set_caption("VVVVVV")
 pygame.display.set_icon(pygame.image.load("./assets/icon.png"))
 epstein_didnt_kill_himself = True
 clock = pygame.time.Clock()
-pygame.mixer.music.set_volume(0.4)
+framerate = 60  # In Frames per seconds.
 
 # COLORS
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
+RED = (200, 10, 10)
 
 # FONTS
 font = pygame.font.Font('./assets/PetMe64.ttf', 24)
 medfont = pygame.font.Font('./assets/PetMe64.ttf', 18)
 smallfont = pygame.font.Font('./assets/PetMe64.ttf', 12)
-
-# SOUND EFFECTS
-sfx_bang = pygame.mixer.Sound("./assets/sounds/bang.wav")
-sfx_beep = pygame.mixer.Sound("./assets/sounds/beep.wav")
-sfx_blip = pygame.mixer.Sound("./assets/sounds/blip.wav")
-sfx_boop = pygame.mixer.Sound("./assets/sounds/boop.wav")
-sfx_flip = pygame.mixer.Sound("./assets/sounds/flip.wav")
-sfx_flop = pygame.mixer.Sound("./assets/sounds/flop.wav")
-sfx_hurt = pygame.mixer.Sound("./assets/sounds/hurt.wav")
-sfx_menu = pygame.mixer.Sound("./assets/sounds/menu.wav")
-sfx_save = pygame.mixer.Sound("./assets/sounds/save.wav")
-sfx_tele = pygame.mixer.Sound("./assets/sounds/tele.wav")
 
 # SPRITESHEETS
 tileSheet = Spritesheet("./assets/tiles.png")
@@ -56,33 +45,71 @@ enemySheetLarge = Spritesheet("./assets/enemies_large.png")
 menuBG = pygame.image.load("./assets/menuBG.png").convert()
 levelComplete = pygame.image.load("./assets/levelcomplete.png").convert()
 logo = pygame.image.load("./assets/logo.png").convert()
+fadeout = pygame.image.load("./assets/fadeout2.png")
 logo.set_colorkey(BLACK)
 
 # Pre-render some text since it never changes
 subtitle = font.render("Pygame Edition", 1, (0, 255, 255))
 levelSelect = font.render("Select Stage", 1, (0, 255, 255))
 
+def str2bool(v):    # Appareantly, Python can't convert strings to booleans. "Fine I'll do it myself"
+  return v.lower() in ("true", "t", "1", "society")
+
 # levels.vvvvvv is a JSON file which stores the names and folders of each level
 with open("levels.vvvvvv", 'r') as levelarray:
     levels = json.loads(levelarray.read())
 levelFolder = levels[0]["folder"]
-levelMusic = levels[0]["music"]
 
+# settings.vvvvvv is a JSON file which stores the settings of your game when you quit.
+with open("settings.vvvvvv", 'r') as s:
+    settings = json.loads(s.read())
+    for saved in settings:
+        volume_slider = float(saved["musicvolume"])  # Volume for music
+        sound_slider = float(saved["sfxvolume"])     # Volume for sound effects
+        musicpackSelected = int(saved["musicpack"])  # Which music pack is selected?
+        msEnabled = str2bool(saved["msEnabled"])     # Extra timer info?
+        debugtools = str2bool(saved["debugtools"])   # Debug tools enabled?
+        invincible = str2bool(saved["invincible"])   # Invincibility enabled?
+        flippyboi = str2bool(saved["flippyboi"])     # Infinite flips enabled?
+        hudsize = int(saved["hudsize"])              # 0 is none, 1 is small, 2 is medium, 3 is large
+    
 # records.vvvvvv stores your best times and lowest deaths for each level
 # I'd encrypt it to avoid cheating but that's a bit too fancy
 with open("records.vvvvvv", 'r') as recordArray:
     records = json.loads(recordArray.read())
+  
+# SOUND EFFECTS
 
+def updateVolume():
+  global sound_slider
+  for sfx in sfx_list:
+    pygame.mixer.Sound.set_volume(sfx, sound_slider)
+  
+sfx_bang = pygame.mixer.Sound("./assets/sounds/bang.wav")
+sfx_beep = pygame.mixer.Sound("./assets/sounds/beep.wav")
+sfx_blip = pygame.mixer.Sound("./assets/sounds/blip.wav")
+sfx_boop = pygame.mixer.Sound("./assets/sounds/boop.wav")
+sfx_flip = pygame.mixer.Sound("./assets/sounds/flip.wav")
+sfx_flop = pygame.mixer.Sound("./assets/sounds/flop.wav")
+sfx_hurt = pygame.mixer.Sound("./assets/sounds/hurt.wav")
+sfx_menu = pygame.mixer.Sound("./assets/sounds/menu.wav")
+sfx_save = pygame.mixer.Sound("./assets/sounds/save.wav")
+sfx_tele = pygame.mixer.Sound("./assets/sounds/tele.wav")
+sfx_list = [sfx_bang,sfx_beep,sfx_blip,sfx_boop,sfx_flip,sfx_flop,sfx_hurt,sfx_menu,sfx_save,sfx_tele]
+updateVolume()
+  
 # CLASSES
 
 class Player:
     def __init__(self):
-        self.x = 0          # Player X
-        self.y = 0          # Player Y
-        self.width = 48     # Player width, for collission detection
-        self.height = 96    # Player height
-        self.speed = 12     # Player X speed
-        self.velocity = 20  # Player Y speed
+        self.x = 0              # Player X
+        self.y = 0              # Player Y
+        self.width = 50         # Player width, for collission detection
+        self.height = 96        # Player height
+        self.speed = 12         # Player X maximum speed
+        self.velocitymax = 16   # Player Y maximum speed
+        self.velocity = 16      # Player Y current speed
+        self.acceleration = 0   # Player X current speed
 
         # These values are dispalyed when completing a level and saved as high scores
         self.deaths = 0
@@ -110,8 +137,15 @@ class Player:
         self.coyoteTimer = 0       # ^ timer
         self.deathStall = 60       # Time to wait before respawning
         self.deathTimer = 0        # ^ timer
-        self.winTimer = 0          # How many frames have passed since you beat the level - for timing the win cutscnee
-
+        self.winTimer = 0          # How many frames have passed since you beat the level - for timing the win cutscene
+        self.textboxBuffer = False # Set to true in ending cutscene to progress to main menu
+        self.bufferWindow = 7      # The buffer window for inputting a flip
+        self.buffer = 0            # ^ timer      
+        self.localTimer = 0        # Timer used for detecting collision
+        self.lineTimer = 0         # Timer used for avoiding line collision
+        self.flipable = False      # Able to flip directions?
+        self.pendingDie = 0        # If over 1, kill the player. Die() adds 1 every frame.
+        self.pendDieTemp = 0       # ^ temp
     def refresh(self):
         # Reset these values, calculate them later
         self.grounded = False
@@ -128,12 +162,12 @@ class Player:
 
     def touching(self, objecttop, forgiveness=0, size=[1, 1]):  # Check if hitbox is touching player
         playertop = [self.x, self.y]
-        playerbottom = [playertop[0] + self.width, playertop[1] + self.height]
+        playerbottom = [playertop[0] + self.width, playertop[1] + self.height]  
         objectbottom = [objecttop[0] + (32 * size[0]), objecttop[1] + (32 * size[1])]
-        objecttop[0] += forgiveness  # Forgiveness shrinks the hitbox by the specified amount of pixels
-        objectbottom[0] -= forgiveness  # ^ it makes spikes and enemies more generous, etc
-        objecttop[1] += forgiveness
-        objectbottom[1] -= forgiveness
+        objecttop[0] += forgiveness    # Forgiveness shrinks the hitbox by the specified amount of pixels
+        objectbottom[0] -= forgiveness # ^ it makes spikes and enemies more generous, etc
+        objecttop[1] += forgiveness * 1
+        objectbottom[1] -= forgiveness * 1
         return collision(playertop, playerbottom, objecttop, objectbottom)
 
     def turn(self):  # Flip player X
@@ -146,31 +180,97 @@ class Player:
             self.flips += 1
             if self.flipped:
                 sfx_flop.play()
+##                self.y -= 8
             else:
+##                self.y += 8
                 sfx_flip.play()
         for num in range(30, 33):
             sprites[num] = pygame.transform.flip(sprites[num], False, True)
         self.flipped = not self.flipped
 
     def die(self):  # Kill the player
-        sfx_hurt.play()
-        self.alive = False
-        self.deaths += 1
-
+        global invincible
+        self.pendDieTemp = 0
+        if self.pendingDie >= 1 and not invincible:
+            sfx_hurt.play()
+            self.acceleration = 0 # Remove all movement before dying
+            self.buffer = 0 # Can't flip after death :P
+            self.localTimer = 0 # Prevents clipping while respawning
+            self.alive = False
+            self.deaths += 1
+            self.pendingDie = 0
+            self.pendDieTemp = 0
+        else:
+            self.pendingDie += 1
+            
     def exist(self):  # Buckle up, this one's a big boy
-        global breakingPlatforms, ingame, savedGame
-
+        global breakingPlatforms, ingame, savedGame, invincible, flippyboi, debugtools, musicpackSelected
         # Gravity line easing
         if self.touchedLine:
-            self.velocity -= round(savedVelocity / 5)
+            self.velocity -= round(savedVelocity / 4.5)
+            self.coyoteTimer = self.coyoteFrames
+            self.lineTimer = 1
         elif self.velocity < savedVelocity:
-            self.velocity += round(savedVelocity / 5)
-        if self.velocity <= 0:
+            self.velocity += round(savedVelocity / 4.5)
+            self.coyoteTimer = self.coyoteFrames
+        if self.lineTimer >= 6:
+            self.lineTimer = 0
+        if (self.blocked[0] or self.blocked[1]) and self.velocity != savedVelocity and self.lineTimer == 2: # Prevents a bug in which the player gets stuck on a ceiling when using gravity lines
+            if self.flipped:
+                self.y -= 16
+            if not self.flipped:
+                self.y += 16
+##        if self.velocity != savedVelocity and self.lineTimer > 2 and self.lineTimer < 6:
+##            if self.blocked[0] or self.blocked[1]:
+##                self.x -= self.acceleration
+##                if self.flipped:
+##                    self.y += 8
+##                if not self.flipped:
+##                    self.y -= 8
+        if self.lineTimer > 0: # Increments the timer AFTER calculations done above
+            self.lineTimer += 1
+            
+            
+        if self.velocity <= 1:
+            if self.flipped and not self.grounded:
+                self.y -= 16
+            elif self.flipped:  
+                self.y -= 1
+            if not self.flipped and not self.grounded: # When you flip on a gravity line, make the transition smoother.
+                self.y += 16
+            elif self.flipped:  # When walking into a vertical gravity line, slightly shift the player towards the ceiling.
+                self.y += 1
             self.flip(True)
             self.touchedLine = False
 
-        if self.alive:  # If you're alive...
 
+        if self.alive:  # If you're alive...
+            if self.pendingDie >= 0:
+                self.pendDieTemp += 1
+            if self.pendingDie > 0 and self.pendDieTemp >= 5:
+                self.pendingDie = 0
+                self.pendDieTemp = 0
+                
+            if self.buffer < self.bufferWindow and self.buffer > 0:
+                self.buffer += 1
+            elif self.buffer >= self.bufferWindow:
+                self.buffer = 0
+            if (self.grounded or self.coyoteTimer < self.coyoteFrames) and self.buffer >= 0 and self.buffer < self.bufferWindow and self.velocity == savedVelocity:
+                self.flipable = True
+            else:
+                self.flipable = False
+            if self.flipable == True and self.buffer > 0 and self.velocity == savedVelocity:
+                self.flip()  # If you're on the ground and pressed the flip key, flip
+                self.coyoteTimer = self.coyoteFrames  # Disable coyote flipping
+                self.flipable = False
+                self.buffer = 0
+
+
+
+                
+            if flippyboi == True:       # Enable midair flipping
+                self.flipable = True
+                
             if not self.grounded:
                 yOff = 3
                 playerTile = self.getStandingOn(False)
@@ -182,31 +282,58 @@ class Player:
                     if objID == -1:
                         objID = getobj([snap(self.x) + i, playerTile[1] + yOff], 2)  # Check sprite layer
                     solidArr.append(issolid(objID))
-                if solidArr == [True, False, True]:  # If you're sandwiched between two solid blocks...
+                if solidArr == [True, False, True]:  # If you're sandwiched between two solid blocks... 
                     self.grounded = True  # ...consider the player grounded
-
+                    
+            if self.verticalPlatform[0] != -999:  # If you ARE on a vertical platform
+                self.grounded = True  # Consider the player grounded
+                self.flipable = True
+                self.coyoteTimer = 0
+                if self.flipped:  # If flipped
+                    if self.y - self.verticalPlatform[0] >= 16 and self.y - self.verticalPlatform[0] <= 48:
+                        self.y = self.verticalPlatform[0] + 32  # SET the player Y position to below the platform
+                    if not self.verticalPlatform[1]:
+                        self.y -= 6  # If moving up, tweak the position a little
+                else:  # If not flipped
+                    if self.y - self.verticalPlatform[0] >= -112 and self.y - self.verticalPlatform[0] <= -80:
+                        self.y = self.verticalPlatform[0] - self.height  # SET the player Y position to above the platform
+                    if self.verticalPlatform[1]:
+                        self.y += 3  # If moving down, tweak the position a little
+                        
             if not self.grounded:  # If the player is STILL not grounded...
                 self.coyoteTimer += 1  # Start coyote timer, which allows flipping for a few frames after leaving the ground
+                
                 if self.flipped:
+                    if self.coyoteTimer > 0 and self.coyoteTimer < 5 and self.velocity == savedVelocity:
+                        self.y += 8
+                    if self.coyoteTimer > 4 and self.y % 16 > 0 and self.velocity == savedVelocity:
+                        self.y += 1
                     self.y -= self.velocity  # Fall up!
                 else:
+                    if self.coyoteTimer > 0 and self.coyoteTimer < 5 and self.velocity == savedVelocity:
+                        self.y -= 8
+                    if self.coyoteTimer > 4 and self.y % 16 > 0 and self.velocity == savedVelocity:
+                        self.y -= 1
                     self.y += self.velocity  # Fall down!
+                    
             elif self.verticalPlatform[0] == -999:  # If you're NOT touching a vertical platform
                 if self.flipped:
                     self.y = math.ceil(self.y / 32) * 32  # Round Y position to nearest 32 if grounded
                 else:
                     self.y = snap(self.y) * 32
-            if self.verticalPlatform[0] != -999:  # If you ARE on a vertical platform
-                self.grounded = True  # Consider the player grounded
-                if self.flipped:  # If flipped
-                    self.y = self.verticalPlatform[0] + 32  # SET the player Y position to below the platform
-                    if not self.verticalPlatform[1]:
-                        self.y -= 3  # If moving up, tweak the position a little
-                else:  # If not flipped
-                    self.y = self.verticalPlatform[0] - self.height  # SET the player Y position to above the platform
-                    if self.verticalPlatform[1]:
-                        self.y += 3  # If moving down, tweak the position a little
+                    
+            if player.blocked[0] == False and player.blocked[1] == False: # Snaps a player to the edge of a block if they try to move toward it.
+                self.localTimer = 0
+            elif player.blocked[0]:
+                self.localTimer += 1
+            elif player.blocked[1]:
+                self.localTimer -= 1                    
+            if self.localTimer < -1 and self.acceleration >= 0 and self.velocity == savedVelocity: 
+                player.x = math.ceil(player.x / 32) * 32 - 12
+            if self.localTimer > 1 and self.acceleration <= 0 and self.velocity == savedVelocity:
+                player.x = math.ceil(player.x / 32) * 32 - 4
 
+                        
             if self.winTimer > 0:
                 # If you touched a teleporter, pathfind to winTarget (center of the teleporter)
                 if self.winTarget[1] and self.x < self.winTarget[0] and not self.blocked[1]:
@@ -219,39 +346,74 @@ class Player:
                     self.movement[0] = True
                     self.walking = True
                     self.animationTimer += 1
-
-            elif (key[pygame.K_RIGHT] or key[pygame.K_d]) and (key[pygame.K_LEFT] or key[pygame.K_a]):
-                self.walking = False  # If pressing left and right at the same time, disable movement entirely
-
-            elif key[pygame.K_RIGHT] or key[pygame.K_d]:
+                    
+            elif key[pygame.K_RIGHT] or key[pygame.K_d] and not (key[pygame.K_LEFT] or key[pygame.K_a]):
                 if not self.blocked[1]:
-                    self.x += self.speed  # Move right if you're able to
+                    if self.acceleration <= self.speed:
+                        self.acceleration += 2.2
+                    if self.acceleration < 0:
+                        self.acceleration += 2.2
+                    if self.acceleration > self.speed:
+                        self.acceleration = self.speed
+                    if self.blocked[0]:
+                        self.x += 2.2
+                    self.x += self.acceleration  # Move right if you're able to
                     self.animationTimer += 1
                     self.walking = True
                 self.movement[1] = True
-            elif key[pygame.K_LEFT] or key[pygame.K_a]:
+            elif key[pygame.K_LEFT] or key[pygame.K_a] and not (key[pygame.K_RIGHT] or key[pygame.K_d]):
                 if not self.blocked[0]:
-                    self.x -= self.speed  # Move left if you're able to
+                    if self.acceleration >= -self.speed:
+                        self.acceleration -= 2.2
+                    if self.acceleration > 0:
+                        self.acceleration -= 2.2
+                    if self.acceleration < -self.speed:
+                        self.acceleration = -self.speed
+                    if self.blocked[1]:
+                        self.x -= 2.2
+                    self.x += self.acceleration  # Move left if you're able to
                     self.animationTimer += 1
                     self.walking = True
                 self.movement[0] = True
+            else:
+                self.acceleration = round(self.acceleration / 1.5)
+                if self.blocked[0] and self.blocked[1]:
+                    self.acceleration = self.acceleration * 1.5
+                if self.blocked[0] or self.blocked[1]:
+                    self.acceleration = 0
+                if self.acceleration <= 1 and self.acceleration >= -1:
+                    self.acceleration = 0
+                self.x += self.acceleration
 
+                
+            self.x = round(self.x)
             if not self.walking:
                 self.animationTimer = self.animationSpeed - 1  # Change to 'walking' sprite as soon as you start moving again
-
+                
             for event in events:
                 if event.type == pygame.KEYDOWN and self.winTimer == 0:
-                    if (self.grounded or self.coyoteTimer < self.coyoteFrames) and self.velocity == savedVelocity and event.key in flipKeys:
-                        self.flip()  # If you're on the ground and pressed the flip key, flip
-                        self.coyoteTimer = self.coyoteFrames  # Disable coyote flipping
+                    if event.key in flipKeys:
+                        self.buffer = 1
+                    if event.key in flipKeys and self.flipable and self.velocity == savedVelocity:
+                        self.flip()
+                        self.coyoteTimer = self.coyoteFrames
+                        self.flipable = False
+                        self.buffer = 0
                     if event.key == pygame.K_r:
+                        if invincible:
+                            temp = True
+                            invincible = False
+                        else:
+                            temp = False
                         self.die()  # Die if you press R
-                    if event.key == pygame.K_COMMA:  # Debug, moves player 1 pixel at a time
+                        self.die()
+                        invincible = temp
+                    if event.key == pygame.K_COMMA and debugtools == True:  # Debug, moves player 1 pixel at a time
                         self.x -= 1
-                    if event.key == pygame.K_PERIOD:
+                    if event.key == pygame.K_PERIOD and debugtools == True:
                         self.x += 1
 
-            if not player.hidden and key[pygame.K_c] and key[pygame.K_h] and mouse[0]:   # Not a cheat
+            if not player.hidden and key[pygame.K_c] and key[pygame.K_h] and mouse[0] and debugtools == True:   # Not a cheat
                 self.x, self.y = pygame.mouse.get_pos()   # Not a cheat
                 self.x -= 30   # Not a cheat
                 self.y -= 50   # Not a cheat
@@ -259,21 +421,26 @@ class Player:
             if (self.movement[0] and self.facingRight) or (self.movement[1] and not self.facingRight):
                 self.turn()  # Flip player X when necessary
 
-            if self.y < -30:  # Top exit
+            if self.y < -32:  # Top exit
                 if room.meta["warp"] < 2 or player.flipped:
-                    newroom([0, 1], [self.x, screenSize[1] - 10], 2)
-            if self.y > screenSize[1] - 10:  # Bottom Exit
+                    newroom([0, 1], [self.x, screenSize[1] - 16], 2)
+            if self.y > screenSize[1] - 16:  # Bottom Exit
                 if room.meta["warp"] < 2 or not player.flipped:
-                    newroom([0, -1], [self.x, -30], 2)
+                    newroom([0, -1], [self.x, -32], 2)
             if self.x < -32:  # Left Exit
-                newroom([-1, 0], [screenSize[0] - 15, self.y], 1)
-            if self.x > screenSize[0] - 15:  # Right Exit
-                newroom([1, 0], [-32, self.y], 1)
+                newroom([-1, 0], [screenSize[0] - 16 + self.acceleration, self.y], 1)
+            if self.x > screenSize[0] - 16:  # Right Exit
+                newroom([1, 0], [-32 + self.acceleration, self.y], 1)
 
         else:  # If dead
-            self.deathTimer += 1  # Increase death timer
+            self.deathTimer += 1 # Increase death timer
+            if self.deathTimer % 8 < 6 and self.deathTimer < 45:
+                self.hidden = False # Adds flashing to the death animation
+            else:
+                self.hidden = True
             if self.deathTimer >= self.deathStall:  # After you were dead for a little while...
                 self.deathTimer = 0
+                self.hidden = False
                 oldX, oldY = [room.x, room.y]
                 room.x, room.y, self.x, self.y, spawnFlipped = checkpoint  # Respawn at checkpoint
                 self.x = (math.floor(self.x / 8) * 8) + 10  # Round X position a little
@@ -289,60 +456,82 @@ class Player:
                     self.flip(True)  # Flip if necessary
 
         if self.winTimer > 0:   # Win cutscene
+            if self.winTimer < 80:
+                pygame.mixer.music.set_volume(volume_slider / 80 * (80 - self.winTimer))
             self.winTimer += 1
-            if self.winTimer in [60, 120, 150]:
-                flash(8)    # Flash screen three times...
+            if self.winTimer < 10:
+                local = 0
+            if self.winTimer in [70, 130, 161 , 192]:
+                flash(8)    # Flash screen four times...
                 sfx_bang.play()
-            if self.winTimer == 220:
+            if self.winTimer == 235:
                 self.hidden = True      # ...then hide the player...
                 pygame.mixer.music.stop()
+                pygame.mixer.music.set_volume(volume_slider)
                 sfx_tele.play()
-            if self.winTimer == 320:
-                pygame.mixer.music.load("./assets/music/fanfare.ogg")  # ...then play a little jingle...
+            if self.winTimer == 335:
+                pygame.mixer.music.load("./assets/musicpack" + str(musicpackSelected) + "/fanfare.ogg")  # ...then play a little jingle...
                 pygame.mixer.music.play(1)
 
-            if self.winTimer > 320:
+            if self.winTimer > 335 and self.textboxBuffer == False:
                 screen.blit(levelComplete, (160, 50))   # ...then display "level complete"...
 
-                messages = [    # These messages will display one by one
-                    "You've completed " + area,
-                    "Flips: " + str(player.flips),
-                    "Deaths: " + str(player.deaths),
-                    "Time: " + str(player.mins) + ":" + str(player.secs).zfill(2) + "." + str(round(player.frames / 60 * 100)).zfill(2),
-                    "Congratulations!",
-                    "Press SPACE to continue"
-                ]
+                if invincible or flippyboi or debugtools:
+                    messages = [
+                        "You've cheated " + area,
+                        "Flips: " + str(player.flips),
+                        "Deaths: " + str(player.deaths),
+                        "Time: " + str(player.mins) + ":" + str(player.secs).zfill(2) + "." + str(round(player.frames / 60 * 100)).zfill(2),
+                        "Congratulations?",
+                        "Press ACTION to continue"
+                    ]
+                else:
+                    messages = [    # These messages will display one by one
+                        "You've completed " + area,
+                        "Flips: " + str(player.flips),
+                        "Deaths: " + str(player.deaths),
+                        "Time: " + str(player.mins) + ":" + str(player.secs).zfill(2) + "." + str(round(player.frames / 60 * 100)).zfill(2),
+                        "Congratulations!",
+                        "Press ACTION to continue"
+                    ]
 
                 if not len(self.winLines):
                     for i in range(len(messages)):  # Render win lines, but only once
                         msg = font.render(messages[i], 1, WHITE)  # Render
                         msgPos = (screenSize[0] / 2) - (msg.get_width() / 2)  # Center
                         self.winLines.append([msg, msgPos])  # Save
-
-            # Display the messages in the array above, line by line
-            if self.winTimer > 420: screen.blit(self.winLines[0][0], (self.winLines[0][1], 200))
-            if self.winTimer > 480: screen.blit(self.winLines[1][0], (self.winLines[1][1], 300))
-            if self.winTimer > 500: screen.blit(self.winLines[2][0], (self.winLines[2][1], 350))
-            if self.winTimer > 520: screen.blit(self.winLines[3][0], (self.winLines[3][1], 400))
-            if self.winTimer > 550: screen.blit(self.winLines[4][0], (self.winLines[4][1], 500))
-            if self.winTimer > 800:
+            # Display the messages in the array above, line by line            
+            if self.winTimer > 335 and self.textboxBuffer == False: screen.blit(self.winLines[0][0], (self.winLines[0][1], 200))
+            if self.winTimer > 410 and self.textboxBuffer == False: screen.blit(self.winLines[1][0], (self.winLines[1][1], 300))
+            if self.winTimer > 455 and self.textboxBuffer == False: screen.blit(self.winLines[2][0], (self.winLines[2][1], 350))
+            if self.winTimer > 500 and self.textboxBuffer == False: screen.blit(self.winLines[3][0], (self.winLines[3][1], 400))
+            if self.winTimer > 565 and self.textboxBuffer == False: screen.blit(self.winLines[4][0], (self.winLines[4][1], 500))
+            if self.winTimer > 690 and self.textboxBuffer == False: 
                 screen.blit(self.winLines[5][0], (self.winLines[5][1], 550))
                 for event in events:
-                    if event.type == pygame.KEYDOWN and event.key in flipKeys:  # When you press SPACE (or any flip key) to quit to menu
+                    if event.type == pygame.KEYDOWN and event.key in flipKeys and self.winTimer > 695:  # When you press SPACE (or any flip key) to quit to menu
+                        self.textboxBuffer = True                               # Will wait 1 second after this textbox appears for winTimer to stop.
+                                                                                # If pressed, continue the timer.
                         postedRecord = False
-                        record = [levelFolder, [player.mins, player.secs, player.frames], player.deaths]    # Store time and deaths
-                        for r in range(len(records)):
-                            if records[r][0] == levelFolder:    # If a previous record exists, compare the new one and check for improvements
-                                oldTime = (records[r][1][0] * 60) + records[r][1][1] + (records[r][1][2] / 60)
-                                newTime = (record[1][0] * 60) + record[1][1] + (record[1][2] / 60)
-                                if oldTime < newTime: record[1] = records[r][1]     # If this run's time was lower, replace record
-                                if records[r][2] < player.deaths: record[2] = records[r][2]     # If this run's death count was lower, replace record
-                                records[r] = record    # Store record
-                                postedRecord = True
-                        if not postedRecord:
-                            records.append(record)  # If no previous record exists, store this run as the record
-                        with open("records.vvvvvv", 'w') as data: json.dump(records, data)  # Save to record file
-
+                        if invincible == False and flippyboi == False and debugtools == False:
+                            record = [levelFolder, [player.mins, player.secs, player.frames], player.deaths]    # Store time and deaths
+                            for r in range(len(records)):
+                                if records[r][0] == levelFolder:    # If a previous record exists, compare the new one and check for improvements
+                                    oldTime = (records[r][1][0] * 60) + records[r][1][1] + (records[r][1][2] / 60)
+                                    newTime = (record[1][0] * 60) + record[1][1] + (record[1][2] / 60)
+                                    if oldTime < newTime: record[1] = records[r][1]     # If this run's time was lower, replace record
+                                    if records[r][2] < player.deaths: record[2] = records[r][2]     # If this run's death count was lower, replace record
+                                    records[r] = record    # Store record
+                                    postedRecord = True
+                            if not postedRecord:
+                                records.append(record)  # If no previous record exists, store this run as the record
+                            with open("records.vvvvvv", 'w') as data: json.dump(records, data)  # Save to record file
+                        
+            if self.winTimer > 760 and self.textboxBuffer == False: #Freezes the timer until the ACTION key is pressed
+                        self.winTimer = 760            
+            if self.winTimer > 760 and self.winTimer < 815: screen.blit(fadeout, (-1448 + ((self.winTimer - 760) * 24), 0)) #Move the fadeout image across the screen
+            if self.winTimer >= 815: screen.blit(fadeout, (0, 0))
+            if self.winTimer > 820:
                         # Quit level, delete save, display menu
                         ingame = False
                         sfx_save.play()
@@ -375,17 +564,20 @@ class Player:
             screen.blit(sprites[spriteNumber], (self.x, self.y))  # Render player
 
         if room.meta["warp"] == 1:  # If warping is enabled, render a second player if they're touching a screen border
-            if self.x < 30:
+            if self.x < 33:
                 screen.blit(sprites[spriteNumber], (self.x + screenSize[0] + 18, self.y))
-            elif self.x > screenSize[0] - 30:
+            elif self.x > screenSize[0] - 33:
                 screen.blit(sprites[spriteNumber], (self.x - screenSize[0] - 18, self.y))
 
         if room.meta["warp"] == 2:  # Same as above but for vertical warping
-            if self.y < 40:
+            if self.y < 32:
                 screen.blit(sprites[spriteNumber], (self.x, self.y + screenSize[1]))
+                if self.alive and self.velocity == 16 and not self.grounded and self.flipped:
+                    self.y -=16
             elif self.y > screenSize[1] - 100:
                 screen.blit(sprites[spriteNumber], (self.x, self.y - screenSize[1]))
-
+                if self.alive and self.velocity == 16 and not self.grounded and not self.flipped:
+                    self.y +=16
 
 class Room:
     def __init__(self, x=5, y=5):
@@ -398,6 +590,7 @@ class Room:
         self.lines = []         # Array of all the gravity lines in the room
         self.meta = {"name": "Outer Space", "color": 0, "tileset": 7, "warp": 0, "enemyType": [1, 1, 1]}    # Metadata
         self.exists = True
+        self.platformException = False
 
         try:  # Attempt to open the room file
             with open("./" + levelFolder + "/" + str(self.x) + "," + str(self.y) + '.vvvvvv', 'r') as lvl:
@@ -515,15 +708,15 @@ class Room:
                 lineSize[0] = l[2]
                 linePos[1] += 1
             if l[4] > 0: lineCol = 180
-            if player.alive and player.velocity == savedVelocity and \
-                    collision([player.x, player.y], [player.x + player.width, player.y + player.height],
+            if player.alive and player.lineTimer == 0 and player.velocity == savedVelocity and \
+                    collision([player.x, player.y], [player.x + (player.width - 2), player.y + player.height],
                     [l[0], l[1]], [l[0] + lineSize[0], l[1] + lineSize[1]]):
                 if not l[4]:    # If gravity line is touched and not on cooldown
                     sfx_blip.play()
                     player.touchedLine = True   # Flip gravity, ease the player's velocity a bit
-                    l[4] = 2
+                    l[4] = lineCooldown
                     if l[3]:
-                        l[4] += lineCooldown
+                        l[4] = lineCooldown - 2
             elif l[4] > 0:  # Decrease line cooldown, only when not touching it
                 l[4] -= 1
             line(screen, grey(lineCol), (linePos[0], linePos[1]), (linePos[0] + lineSize[0], linePos[1] + lineSize[1]), lineWidth)
@@ -531,14 +724,13 @@ class Room:
 
 
     def run(self):
-        global conveyorTimer
+        global conveyorTimer, flippyboi
         for z in range(3):
             for i in self.tiles:  # For each object in the screen...
                 tileX, tileY, tileZ = parsecoords(i)
                 if tileZ == z:  # Layer objects correctly (blocks < spikes < entities)
 
                     spriteNum = self.tiles[i]
-
                     if spriteNum == 33 or spriteNum == 35:  # Checkpoints
                         offset = -32
                         saveflipped = False
@@ -551,12 +743,18 @@ class Room:
                             setcheckpoint(tileX * 32, (tileY * 32) + offset,
                                           saveflipped)  # Set checkpoint if not activated
 
+                                
                     if 26 <= spriteNum <= 29 and player.alive:  # If object is a spike
                         if player.touching([tileX * 32, tileY * 32], 12):
-                            player.die()  # If you touch a spike, die!
-
+                                player.die()# If you touch a spike, die!
+                                player.pendingDie -= 0.4
+                                if (player.grounded or player.flipable) and self.platformException == False and not flippyboi:
+                                    player.pendingDie == 0
+                                    player.die()
+                                    player.die()
+                            
                     if player.alive and issolid(spriteNum):  # If object is a solid block
-
+                        
                         if 37 <= spriteNum <= 40:  # Resize hitbox if object is a breaking platform
                             if not i in breakingPlatforms:  # If not considered 'breaking' yet
                                 if solidblock(4, tileX * 32 + 5, tileY * 32):
@@ -569,10 +767,18 @@ class Room:
                         elif solidblock(1, tileX * 32, tileY * 32):  # Ground/block player if touching a solid block
                             if 42 <= spriteNum <= 45:  # If tile is a left moving conveyor
                                 if not player.blocked[0]:  # Move left if not blocked
-                                    player.x -= conveyorSpeed
+                                    if not (player.blocked[1] and player.acceleration > 9): #If wall to the right and holding right, conveyor doesn't move left
+                                        player.x -= conveyorSpeed
+                                        if player.x % 16 == 0 and player.acceleration < -9:
+                                            player.x += 3
+                                        player.acceleration -= (conveyorSpeed / 1024)         # Fixes bug that prevents player from moving on conveyor if next to a wall
                             if 46 <= spriteNum <= 49:  # If tile is a right moving conveyor
                                 if not player.blocked[1]:  # Move right if not blocked
-                                    player.x += conveyorSpeed
+                                    if not (player.blocked[0] and player.acceleration < -9): #If wall to the left and holding left, conveyor doesn't move right
+                                        player.x += conveyorSpeed
+                                        if player.x % 16 == 0 and player.acceleration > 9:
+                                            player.x -= 3
+                                        player.acceleration += (conveyorSpeed / 1024)        # Fixes bug that prevents player from moving on conveyor if next to a wall
 
                     if i in breakingPlatforms:  # Render breaking platforms
                         if player.alive: breakingPlatforms[i] += 1
@@ -619,7 +825,7 @@ class Enemy:
     def __init__(self, arr):
         self.x, self.y, self.xSpeed, self.ySpeed, self.type = arr
         self.size = 2 * (arr[4]+1)
-        self.hitbox = 20
+        self.hitbox = 16
         self.sprite = room.meta["enemyType"][self.type]
 
         if self.size == 4:
@@ -683,7 +889,12 @@ class Platform:
         # HORIZONTAL PLATFORMS (easy)
         if self.ySpeed == 0 and solidblock(4 + (self.xSpeed != 0), self.x, self.y):  # Move player with the platform
             if self.xSpeed < 0 and not player.blocked[0] or self.xSpeed > 0 and not player.blocked[1]:  # If left/right is not blocked...
-                if player.alive: player.x += self.xSpeed  # Move with the platform
+##                if not (player.acceleration < -4 and player.blocked[0]) or not (player.acceleration > 4 and player.blocked[1]):
+                if (player.acceleration > -9 and not player.blocked[0]) or (player.acceleration < 9 and not player.blocked[1]):
+                    if player.alive:
+                        player.x += self.xSpeed # Move with the platform
+                        player.acceleration += (self.xSpeed / 100)
+                    
 
         # VERTICAL PLATFORMS (hard!!)
         elif self.xSpeed == 0:
@@ -794,7 +1005,7 @@ warpBGs = []                      # Array of warp backgrounds
 teleporters = []                  # Array of teleporter frames
 enemySprites = [[], []]           # Array of all the enemy textures
 enemyCounts = [12, 4]             # How many enemies there are, for each type
-largeHitboxes = [35, 32, 38, 40]  # Hitbox sizes of large 4x4 enemies
+largeHitboxes = [30, 26, 38, 40]  # Hitbox sizes of large 4x4 enemies
 
 stars = []              # Array of all the stars in the background
 rects = []              # Array of all the rectangles in the lab background
@@ -811,14 +1022,15 @@ bgCol = (0, 0, 0, 0)
 starRate = 4            # How frequently background stars spawn (every nth frame)
 starSpeed = 12          # How fast the average background star moves
 menuBGSpeed = 2         # How fast the menu background moves
-warpBGSpeed = 4         # How fast the warp background moves
+warpBGSpeed = 5         # How fast the warp background moves
 breakSpeed = 6          # How quickly platforms break
 enemyAnimation = 12     # How quickly enemies animate
 conveyorAnimation = 12  # How quickly conveyors animate
-conveyorSpeed = 5       # How fast conveyors move the player
+conveyorSpeed = 4       # How fast conveyors move the player
 lineWidth = 4           # Thickness of gravity lines
-lineCooldown = 10       # Delay before being able to reuse a vertical gravity line
+lineCooldown = 14       # Delay before being able to reuse a vertical gravity line
 flashTime = 30          # How long the screen should flash white for. Value changes when using flash()
+
 
 # When certain events are met, these will increment every frame until reaching their timer value above
 starTime = 0
@@ -905,7 +1117,7 @@ def switchtileset(row):  # Switches the currently loaded tileset. Runs on every 
 
     appendeach([0] * 26, sprites)  # Leave space for the ground/background tiles. These are added later
     appendeach(spikeTiles[0], sprites)  # Append spikes to 26-29. Assume regular tileset
-    appendeach(playerSheet.split(player.width, player.height, 3), sprites)  # Append player sprites to 30-32
+    appendeach(playerSheet.split(player.width-2, player.height, 3), sprites)  # Append player sprites to 30-32
     appendeach(checkpointSheet.split(64, 64, 4), sprites)  # Append checkpoint sprites to 33-36
     appendeach(platformSheet.split(128, 32, 5), sprites)  # Append platforms to 37-41
     appendeach(conveyorSheet.split(32, 32, 8), sprites)  # Append conveyors to 42-49
@@ -963,24 +1175,43 @@ def isspike(obj):     # Check if object is a spike
 def solidblock(blocksize, tx, ty):  # When the player comes in contact with a solid block
     global standingOn, player
     isstanding = False  # Guilty until proven innocent
-
     for blockTile in range(1, blocksize + 1):   # For larger objects (e.g. platforms), check each tile
         gridspace = tx + (32 * (blockTile - 1))
-        if (snap(gridspace) == standingOn[0] or snap(gridspace) == standingOn[0] + 1) and snap(ty) == \
-                standingOn[1] and 26 > player.x + 7 - gridspace > -26:
-            player.grounded = True     # If you're standing on a block...
-            isstanding = True   # Looks like you're standing!
-            player.coyoteTimer = 0      # Reset coyote timer
+
+##        if player.touching([gridspace, ty]):  # If block is next to you
+##            if player.x + 11 < gridspace and not player.x - 11 >= gridspace:
+##                player.blocked[1] = True  # Block right
+##                player.acceleration = -2
+##            elif player.x - 11 >= gridspace and not player.x + 11 < gridspace:
+##                player.blocked[0] = True  # Block left
+##                player.acceleration = 2
 
         if player.touching([gridspace, ty]):  # If block is next to you
+
             if player.x < gridspace:
                 player.blocked[1] = True  # Block right
             elif player.x >= gridspace:
                 player.blocked[0] = True  # Block left
 
+
+
+##        if player.touching([gridspace, ty]):  # If block is next to you
+##            if player.x + 12 < gridspace:
+##                player.blocked[1] = True  # Block right
+##                player.x = math.ceil(player.x / 12) * 12 - 9
+##            elif player.x - 12 >= gridspace:
+##                player.blocked[0] = True  # Block left
+##                player.x = math.ceil(player.x / 12) * 12 - 3
+
+        if (snap(gridspace) == standingOn[0] or snap(gridspace) == standingOn[0] + 1) and snap(ty) == \
+                standingOn[1] and 26 > player.x + 7 - gridspace > -26:
+            player.grounded = True     # If you're standing on a block...
+            isstanding = True   # Looks like you're standing!
+            player.coyoteTimer = 0      # Reset coyote timer
+            
     return isstanding
 
-
+     # When the player's position and acceleration values cause 
 def getobj(coords, Z=0):   # Get object at specified coords
     global room
     try:
@@ -998,14 +1229,14 @@ def roundto(num, target):   # Rounds number to nearest multiple of Y
 
 
 def getMusic(menu=False):   # Figure out what music should be playing
-    global music, levelFolder
+    global music, levelFolder, musicpackSelected
     if menu: song = "menu"
     else:   # Find song to use based on current level
         for i in levels:
             if i["folder"] == levelFolder:
                 song = i["music"]
-    try: pygame.mixer.music.load("./assets/music/" + song + ".ogg")
-    except pygame.error: pygame.mixer.music.load("./assets/music/spacestation.ogg")
+    try: pygame.mixer.music.load("./assets/musicpack" + str(musicpackSelected) +"/" + song + ".ogg")
+    except pygame.error: pygame.mixer.music.load("./assets/musicpack1/space.ogg")
     pygame.mixer.music.play(-1)
 
 
@@ -1036,14 +1267,23 @@ def switchdirection(data, w, h, includeSpikes=False):   # Change enemy/platform 
 
 
 def renderHUD():    # Displays time + FPS ingame, plus lots of debug info if F3 is pressed
+    global hudsize
     gameTime = str(player.mins) + ":" + str(player.secs).zfill(2)
-    if debug: gameTime += "." + str(round(player.frames / 60 * 100)).zfill(2)
-
-    timer = smallfont.render(gameTime, 1, WHITE)  # Render timer
-    fpsCount = smallfont.render(str(int(clock.get_fps())) + " FPS", 1, WHITE)  # Render FPS count
-
+    if msEnabled: gameTime += "." + str(round(player.frames / 60 * 100)).zfill(2)
+    if hudsize == 3:                                  # Small font
+        timer = font.render(gameTime, 1, WHITE)
+        fpsCount = font.render(str(int(clock.get_fps())) + " FPS", 1, WHITE)
+    elif hudsize == 2:                                # Medium font
+        timer = medfont.render(gameTime, 1, WHITE)
+        fpsCount = medfont.render(str(int(clock.get_fps())) + " FPS", 1, WHITE)
+    elif hudsize == 1:
+        timer = smallfont.render(gameTime, 1, WHITE)  # Render timer
+        fpsCount = smallfont.render(str(int(clock.get_fps())) + " FPS", 1, WHITE)  # Render FPS count
+    else:
+        timer = smallfont.render('', 1, WHITE)
+        fpsCount = smallfont.render('', 1, WHITE)
     screen.blit(timer, (10, 10))  # Display clock
-    screen.blit(fpsCount, (10, 30))  # Display FPS counter
+    screen.blit(fpsCount, (10, hudsize * 5 + 25))  # Display FPS counter
 
     if debug:   # Toggle with F3
         roomStr = str(len(room.tiles)) + "/" + str(len(room.platforms)) + "/" + str(len(room.enemies)) + "/" + str(len(room.lines))
@@ -1055,12 +1295,12 @@ def renderHUD():    # Displays time + FPS ingame, plus lots of debug info if F3 
         roomData = smallfont.render("Data: " + roomStr, 1, WHITE)
         roomPos = smallfont.render("Pos: " + str(player.x) + "," + str(player.y) + "/" + str(room.x) + "," + str(room.y), 1, WHITE)
 
-        screen.blit(deathCount, (10, 50))
-        screen.blit(flipCount, (10, 70))
-        screen.blit(starCount, (10, 90))
-        screen.blit(roomSpeed, (10, 110))
-        screen.blit(roomPos, (10, 130))
-        screen.blit(roomData, (10, 150))
+        screen.blit(deathCount, (10, 40 + 10 * hudsize))
+        screen.blit(flipCount, (10, 60 + 10 * hudsize))
+        screen.blit(starCount, (10, 80 + 10 * hudsize))
+        screen.blit(roomSpeed, (10, 100 + 10 * hudsize))
+        screen.blit(roomPos, (10, 120 + 10 * hudsize))
+        screen.blit(roomData, (10, 140 + 10 * hudsize))
 
 
 def checksave():    # Load save file
@@ -1075,17 +1315,19 @@ def checksave():    # Load save file
 def buildmenu():    # Builds the main menu
     global menu, savedGame
     checksave()
-    menu = Menu("menu", ["new game", "continue", "quit"], 225)
+    menu = Menu("menu", ["new game", "continue", "settings", "quit"], 225)
     if not savedGame:
         menu.lock(1)    # Disable "continue" option if no saved game
 
 
 def runMenus():   # Run code depending on what menu option is selected
-    global menu, area, player, ingame, checkpoint, levelFolder, cpRoom, epstein_didnt_kill_himself
+    global menu, area, player, ingame, checkpoint, levelFolder, cpRoom, epstein_didnt_kill_himself, volume_slider, sound_slider, msEnabled, debugtools, invincible, flippyboi, hudsize, musicpackSelected, settings
     option = menu.run()
 
     if menu.name == "pause":    # Pause menu
 
+        if debugtools or invincible or flippyboi:
+            menu.lock(2)
         if player.winTimer > 0:
             menu.lock(1)  # Disable retry during win cutscene
 
@@ -1186,11 +1428,208 @@ def runMenus():   # Run code depending on what menu option is selected
                 ingame = True
                 getMusic()
                 sfx_save.play()
-
-        if option == 2:     # Quit
+        if option == 2:
+            sfx_menu.play()
+            menu = Menu("settings", ["audio settings", "video settings", "controls", "gameplay settings", "back"])
+            menu.lock(1)
+            menu.lock(2)
+    # Delete these later ^^^
+        if option == 3:     # Quit
             epstein_didnt_kill_himself = False
 
+    elif menu.name == "settings":   # All settings [ Audio , Video , Controls, Gameplay ]
+        if option == 0:
+            menu = Menu("audio", ["music volume", "sfx volume", "music packs", "back"])
+            sfx_menu.play()
+        if option == 1:
+            menu = Menu("video", ["back"])
+            sfx_menu.play()
+        if option == 2:
+            menu = Menu("controls", ["back"])
+            sfx_menu.play()
+        if option == 3:
+            menu = Menu("gameplay", ["More timer info", "HUD size", "Cheats", "back"])
+            sfx_menu.play()
+        if option == 4:
+                                ##### SAVE THE SETTINGS
+            sfx_menu.play()
+            with open("settings.vvvvvv", 'w') as s:
+                settings = ["[{\n",
+                            '"musicvolume": "' +str(volume_slider) + '",\n',
+                            '"sfxvolume": "' +str(sound_slider) + '",\n',
+                            '"musicpack": "' +str(musicpackSelected) + '",\n',
+                            '"msEnabled": "' +str(msEnabled) + '",\n',
+                            '"hudsize": "' +str(hudsize) + '",\n',
+                            '"debugtools": "' +str(debugtools) + '",\n',
+                            '"invincible": "' +str(invincible) + '",\n',
+                            '"flippyboi": "' +str(flippyboi) + '"\n',
+                            '}]']
+                s.writelines(settings)
+                    
+            buildmenu()
 
+    elif menu.name == "audio":  # All Audio settings
+        if option == 0:
+            menu = Menu("musicvolume", ["+","return","-"])
+            sfx_menu.play()
+        if option == 1:
+            menu = Menu("sfxvolume", ["+","return","-"])
+            sfx_menu.play()
+        if option == 2:
+            menu = Menu("musicpack", ["+","return","-"])
+            sfx_menu.play()
+        if option == 3:
+            menu = Menu("settings", ["audio settings", "video settings", "controls", "gameplay settings", "back"])
+            sfx_menu.play()
+            menu.lock(1)
+            menu.lock(2)
+
+    elif menu.name == "musicvolume":    # Music settings
+        vol_str = "{:.0%}".format(volume_slider)
+        volume = font.render(vol_str, 1, (0, 255, 255))
+        screen.blit(volume, ((screenSize[0] / 2) - (volume.get_width() / 2), 150))
+        
+        if option == 0 and volume_slider < 0.95:
+            sfx_menu.play()
+            volume_slider += 0.1
+        if option == 1:
+            sfx_menu.play()
+            menu = Menu("audio", ["music volume", "sfx volume", "music packs", "back"])
+        if option == 2 and volume_slider > 0.05:
+            sfx_menu.play()
+            volume_slider -= 0.1
+        volume_slider = round(volume_slider, 1)
+    
+    elif menu.name == "sfxvolume":  # Sound settings
+        vol_str = "{:.0%}".format(sound_slider)
+        volume = font.render(vol_str, 1, (0, 255, 255))
+        screen.blit(volume, ((screenSize[0] / 2) - (volume.get_width() / 2), 150))
+        
+        if option == 0 and sound_slider < 0.95:
+            sfx_menu.play()
+            sound_slider += 0.1
+        if option == 1:
+            sfx_menu.play()
+            menu = Menu("audio", ["music volume", "sfx volume", "music packs", "back"])
+        if option == 2 and sound_slider > 0.05:
+            sfx_menu.play()
+            sound_slider -= 0.1
+        updateVolume()
+
+    elif menu.name == "musicpack":
+        musicSelect = "Music selected: Pack " + str(musicpackSelected)
+        mus = font.render(musicSelect, 1, (0, 255, 255))
+        screen.blit(mus, ((screenSize[0] / 2) - (mus.get_width() / 2), 150))
+        
+        if option == 0:
+            try: pygame.mixer.music.load("./assets/musicpack" + str(musicpackSelected + 1) +"/" + "space.ogg")
+            except pygame.error: musicpackSelected -= 1
+            musicpackSelected += 1
+            sfx_menu.play()
+            getMusic()
+        if option == 1:
+            sfx_menu.play()
+            getMusic(1)
+            menu = Menu("audio", ["music volume", "sfx volume", "music packs", "back"])
+        if option == 2:
+            try: pygame.mixer.music.load("./assets/musicpack" + str(musicpackSelected - 1) +"/" + "space.ogg")
+            except pygame.error: musicpackSelected += 1
+            musicpackSelected -= 1
+            sfx_menu.play()
+            getMusic()
+
+    elif menu.name == "gameplay":   # All gameplay settings
+        renderHUD()
+        if menu.selected == 0:
+            if msEnabled == True:
+                ms = "Timer will show milliseconds"
+            else:
+                ms = "Timer will only show minutes and seconds"
+            temp = medfont.render(ms, 1, WHITE)
+            screen.blit(temp, (20, screenSize[1] - 35))
+        if option == 0 and msEnabled == False:
+            sfx_save.play()
+            msEnabled = True
+        elif option == 0 and msEnabled == True:
+            sfx_hurt.play()
+            msEnabled = False
+        if menu.selected == 2:
+            temp = medfont.render("Note: Records aren't saved if cheats are enabled!", 1, WHITE)
+            screen.blit(temp, (20, screenSize[1] - 35))
+        if option == 1:
+            sfx_menu.play()
+            menu = Menu("hudsize", ["none", "small", "medium", "large"])
+        if option == 2:
+            sfx_tele.play()
+            menu = Menu("cheats", ["debug tools", "invincibility mode", "flip in midair", "back"])
+        if option == 3:
+            sfx_menu.play()
+            menu = Menu("settings", ["audio settings", "video settings", "controls", "gameplay settings", "back"])
+            menu.lock(1)
+            menu.lock(2)
+
+    elif menu.name == "hudsize": # HUD Size settings
+        renderHUD()
+        if menu.selected == 0:
+            hudsize = 0
+        if menu.selected == 1:
+            hudsize = 1
+        if menu.selected == 2:
+            hudsize = 2
+        if menu.selected == 3:
+            hudsize = 3
+        if option <= 3:
+            menu = Menu("gameplay", ["ms display", "HUD size", "Cheats", "back"])
+            sfx_save.play()
+
+            
+    elif menu.name == "cheats": # Cheat settings
+        if menu.selected == 0:  # Debug Tools
+            if debugtools == True:
+                dbt = "The OG cheats from GD Colon are enabled"
+            else:
+                dbt = "All debug features are disabled"
+            temp = medfont.render(dbt, 1, WHITE)
+            screen.blit(temp, (20, screenSize[1] - 35))
+        if option == 0 and debugtools == False:
+            sfx_save.play()
+            debugtools = True
+        elif option == 0 and debugtools == True:
+            sfx_hurt.play()
+            debugtools = False
+            
+        if menu.selected == 1: # Invincibility Mode
+            if invincible == True:
+                inv = "Spikes need not apply"
+            else:
+                inv = "Pro tip: Spikes and enemies kill you"
+            temp = medfont.render(inv, 1, WHITE)
+            screen.blit(temp, (20, screenSize[1] - 35))
+        if option == 1 and invincible == False:
+            sfx_save.play()
+            invincible = True
+        elif option == 1 and invincible == True:
+            sfx_hurt.play()
+            invincible = False
+            
+        if menu.selected == 2: # Infinite Flips
+            if flippyboi == True:
+                flip = "Flip in midair!"
+            else:
+                flip = "You regain your flip when you touch the ground"
+            temp = medfont.render(flip, 1, WHITE)
+            screen.blit(temp, (20, screenSize[1] - 35))
+        if option == 2 and flippyboi == False:
+            sfx_save.play()
+            flippyboi = True
+        elif option == 2 and flippyboi == True:
+            sfx_hurt.play()
+            flippyboi = False
+        if option == 3:
+            menu = Menu("gameplay", ["ms display","HUD size", "Cheats", "back"])
+            sfx_menu.play()
+            
+            
 def startlevel(levelObj):   # Starts a stage
     global checkpoint, levelFolder, ingame, player, area, cpRoom
     player = Player()   # Create fresh new player
@@ -1223,7 +1662,6 @@ while epstein_didnt_kill_himself:   # Runs every frame @ 60 FPS
     key = pygame.key.get_pressed()          # List of pressed keys
     mouse = pygame.mouse.get_pressed()      # List of pressed mouse buttons
     events = pygame.event.get()             # List of keyboard/mouse/misc events fired on current frame
-
     if ingame:
 
         player.refresh()
@@ -1247,7 +1685,10 @@ while epstein_didnt_kill_himself:   # Runs every frame @ 60 FPS
 
     else:
         runMenus()   # Menus!
-
+        pygame.mixer.music.set_volume(volume_slider)
+    if invincible or debugtools or flippyboi:
+        Cheater = font.render('C', 1, RED)  # Render
+        screen.blit(Cheater, (screenSize[0] - 30, 10))
     for event in events:
         if event.type == pygame.QUIT:   # Allow quitting
             epstein_didnt_kill_himself = False  # Pygame disagrees with this and closes the program
@@ -1257,9 +1698,14 @@ while epstein_didnt_kill_himself:   # Runs every frame @ 60 FPS
                 if ingame or menu.name == "pause":   # If you're ingame...
                     ingame = not ingame              # Pause/unpause gameplay
                     menu = Menu("pause", ["continue", "retry", "save", "menu", "quit"], 0, False)   # Build pause menu
-            if event.key == pygame.K_F3:
+            if event.key == pygame.K_F3 and debugtools == True:
                 debug = not debug   # Toggle debug menu upon pressing F3
-
+            if event.key == pygame.K_k and debugtools == True and framerate > 1:
+                framerate -= 1
+            if event.key == pygame.K_l and debugtools == True:
+                framerate += 1
+            if event.key == pygame.K_SEMICOLON and debugtools == True:
+                framerate = 60
     if flashing:    # If the flash() function is active, fill the screen with white
         screen.fill(WHITE)
         flashTimer += 1
@@ -1268,6 +1714,6 @@ while epstein_didnt_kill_himself:   # Runs every frame @ 60 FPS
             flashing = False
 
     pygame.display.flip()   # Display everything
-    clock.tick(60)  # 60 FPS
+    clock.tick(framerate)  # 60 FPS
 
 pygame.quit()   # Adios!
