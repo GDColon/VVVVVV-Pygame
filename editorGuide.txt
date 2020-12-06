@@ -21,5 +21,7 @@ W: change warp mode
 square brackets: change enemy type
 shift + square brackets: change large enemy type
 
+o: change music
+
 to add a new stage to game, create a new level object
 inside levels.vvvvvv (follow the format of the others)

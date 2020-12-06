@@ -13,12 +13,18 @@ with open('./assets/editorTiles.vvvvvv', 'r') as et:
 with open("./assets/smartBuild.vvvvvv") as data:
     smartbuild = json.loads(data.read())
 
-with open("levels.vvvvvv", 'r') as levelarray:
+with open("levels.vvvvvv") as levelarray:
     levels = json.loads(levelarray.read())
     levelFolder = levels[0]["folder"]
 
 editorGuide = open("editorGuide.txt", "r")
 editorGuide = editorGuide.read().splitlines()
+
+# Music
+pygame.mixer.pre_init(44100, -16, 2, 1024)
+pygame.init()
+
+pygame.mixer.music.set_volume(0.4)
 
 pygame.init()
 screenSize = [960, 736]
@@ -65,6 +71,13 @@ class Room:
 room = Room(levels[0]["startingRoom"])
 lastRoom = [0, 0]
 enemyCounts = [12, 4]
+
+# Custom values
+
+music_value = 1
+roomid = 1
+
+################
 
 palette = []
 groundTiles = []
@@ -126,6 +139,23 @@ def spritesheet(sheet, width, height, amount, offset=0, nokey=False):
         broken.append(image)
     return broken
 
+def loadmusic():
+    pygame.mixer.music.stop()
+    with open("./levels.vvvvvv", 'r') as datalevel:
+        data = json.load(datalevel)
+        music_room = data[roomid-1]['music']
+        if music_room == "space":
+            pygame.mixer.music.load("./assets/music/space.ogg")
+            music_value = 1
+        elif music_room == "lab":
+            pygame.mixer.music.load("./assets/music/lab.ogg")
+            music_value = 2
+        elif music_room == "warp":
+            pygame.mixer.music.load("./assets/music/warp.ogg")
+            music_value = 3
+        pygame.mixer.music.play(-1)
+    return music_value
+
 def loadcolors():
     global bgCol
     for i in range(len(sprites)):
@@ -169,6 +199,7 @@ def loadFolder(levelObj):
     lastRoom = levelObj["startingRoom"]
     startPoint = [levelObj["startingRoom"], levelObj["startingCoords"]]
     print("> Loaded", levelObj["name"])
+    loadmusic()
     loadroom()
 
 def getSpeed():
@@ -289,6 +320,9 @@ while not done:
 
     screen.fill((bgCol[1], bgCol[2], bgCol[3]))
 
+    if music_value == 3:
+        music_value = 0
+
     if room.meta["warp"]:
         if room.meta["warp"] == 1:
             screen.blit(warpBGs[0], (0, 0))
@@ -379,6 +413,7 @@ while not done:
 
             for i in range(1, 10): # Eval seems to be the best way to check if *any* function key is pressed
                 if event.key == eval("pygame.K_F" + str(i)) and i <= len(levels):
+                    roomid = i
                     loadFolder(levels[i-1])
 
             if event.key == pygame.K_RIGHT:
@@ -527,6 +562,45 @@ while not done:
                 room.meta["warp"] += 1
                 if room.meta["warp"] > 2:
                     room.meta["warp"] = 0
+
+            # Change Music
+
+            if event.key == pygame.K_o:
+                music_value += 1
+                print(music_value)
+                pygame.mixer.music.stop()
+                if music_value == 1:
+                    pygame.mixer.music.load("./assets/music/space.ogg")  # space.ogg
+                    with open("./levels.vvvvvv", 'r') as datalevel:
+                        data = json.load(datalevel)
+                        data[roomid-1]['music'] = "space"
+                    os.remove("./levels.vvvvvv")
+                    with open("./levels.vvvvvv", "w") as datalevel:
+                        json.dump(data, datalevel, indent=4)
+                        print("> Music edited to 'space.ogg'.")
+                    
+                elif music_value == 2:
+                    pygame.mixer.music.load("./assets/music/lab.ogg")  # lab.ogg
+                    with open("./levels.vvvvvv", 'r') as datalevel:
+                        data = json.load(datalevel)
+                        data[roomid-1]['music'] = "lab"
+                    os.remove("./levels.vvvvvv")
+                    with open("./levels.vvvvvv", "w") as datalevel:
+                        json.dump(data, datalevel, indent=4)
+                        print("> Music edited to 'lab.ogg'.")
+                
+                elif music_value == 3:
+                    music_value = 0
+                    pygame.mixer.music.load("./assets/music/warp.ogg")  # warp.ogg
+                    with open("./levels.vvvvvv", 'r') as datalevel:
+                        data = json.load(datalevel)
+                        data[roomid-1]['music'] = "warp"
+                    os.remove("./levels.vvvvvv")
+                    with open("./levels.vvvvvv", "w") as datalevel:
+                        json.dump(data, datalevel, indent=4)
+                        print("> Music edited to 'warp.ogg'.")
+
+                pygame.mixer.music.play(-1)
 
             if event.key == pygame.K_BACKSPACE:
                 if [room.x, room.y] != lastRoom:
