@@ -567,7 +567,6 @@ while not done:
 
             if event.key == pygame.K_o:
                 music_value += 1
-                print(music_value)
                 pygame.mixer.music.stop()
                 if music_value == 1:
                     pygame.mixer.music.load("./assets/music/space.ogg")  # space.ogg
