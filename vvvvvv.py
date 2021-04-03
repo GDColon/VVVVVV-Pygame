@@ -4,6 +4,7 @@ try:
     from pygame.draw import line, rect
 except ImportError:
     os.system('py3 -m pip install pygame')  # Automatically install PyGame
+import pygame
 from spritesheet import Spritesheet   # Saved in another file since it's used elsewhere
 from palette import Palette
 
