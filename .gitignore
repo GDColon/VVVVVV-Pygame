@@ -2,3 +2,5 @@
 assets/ripped
 testarea
 __pycache__
+.vscode
+.vs
